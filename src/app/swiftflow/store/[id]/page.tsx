@@ -13,9 +13,17 @@ import {
 } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 
+// ✅ Correctly typed props to avoid Vercel build failure
+interface PageProps {
+  params: {
+    userId: string;
+  };
+}
+
 export default function StorefrontPage() {
-  const { id } = useParams();
   const router = useRouter();
+  const params = useParams() as PageProps['params'];
+  const id = params.userId;
 
   const [storeInfo, setStoreInfo] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
@@ -25,7 +33,7 @@ export default function StorefrontPage() {
     if (!id) return;
 
     const fetchData = async () => {
-      const userRef = doc(db, 'users', id as string);
+      const userRef = doc(db, 'users', id);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         setStoreInfo(userSnap.data());
@@ -147,6 +155,7 @@ export default function StorefrontPage() {
     </div>
   );
 }
+
 
 
 
