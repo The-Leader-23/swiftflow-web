@@ -13,17 +13,10 @@ import {
 } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 
-// ✅ Correctly typed props to avoid Vercel build failure
-interface PageProps {
-  params: {
-    userId: string;
-  };
-}
-
 export default function StorefrontPage() {
   const router = useRouter();
-  const params = useParams() as PageProps['params'];
-  const id = params.userId;
+  const params = useParams();
+  const id = params?.userId as string;
 
   const [storeInfo, setStoreInfo] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
@@ -77,7 +70,6 @@ export default function StorefrontPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-[#111827] to-black text-white">
       <div className="max-w-7xl mx-auto px-6 py-10">
-        {/* Back button */}
         <button
           onClick={() => router.back()}
           className="mb-6 text-sm text-blue-500 underline hover:text-blue-300"
@@ -85,7 +77,6 @@ export default function StorefrontPage() {
           ← Back to SwiftFlow
         </button>
 
-        {/* Store banner */}
         <div
           className="rounded-xl border border-gray-700 p-6 mb-10 flex flex-col md:flex-row items-center md:items-start gap-6"
           style={{ backgroundColor: `${bg}22` }}
@@ -112,7 +103,6 @@ export default function StorefrontPage() {
           </div>
         </div>
 
-        {/* Product grid */}
         {loading ? (
           <p className="text-blue-400">Loading products...</p>
         ) : products.length === 0 ? (
@@ -155,6 +145,7 @@ export default function StorefrontPage() {
     </div>
   );
 }
+
 
 
 
