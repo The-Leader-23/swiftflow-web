@@ -42,6 +42,7 @@ next-env.d.ts
 
 # Firebase
 firebase-debug.log
+src/lib/firebase.ts
 
 # VS Code
 .vscode/
