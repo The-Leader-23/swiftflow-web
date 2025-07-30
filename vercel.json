@@ -1,0 +1,6 @@
+{
+    "build": {
+      "ignoreCommand": "echo 'No backend build required'"
+    }
+  }
+  
