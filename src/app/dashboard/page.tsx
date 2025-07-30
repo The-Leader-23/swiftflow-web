@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { db, storage } from '@/lib/firebase';
 import {
   collection,
-  doc,
+  getDocs,
   onSnapshot,
   updateDoc,
   addDoc,
