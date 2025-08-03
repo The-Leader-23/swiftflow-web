@@ -10,7 +10,6 @@ import {
   where,
   getDocs,
 } from 'firebase/firestore';
-import SwiftMindLayout from '..//swiftmind/SwiftMindLayout';
 import SalesChart from '../dashboard/charts';
 
 interface ProductSales {
@@ -68,51 +67,50 @@ export default function InsightsPage() {
   }, []);
 
   return (
-    <SwiftMindLayout>
-      <main className="p-6 max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">📈 Swift Insights</h1>
+    <main className="p-6 max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6">📈 Swift Insights</h1>
 
-        <SalesChart />
+      <SalesChart />
 
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold mb-2">🔥 Top Product This Week</h2>
-          <p className="text-xl">
-            {topProduct ? topProduct : 'No sales this week yet 😴'}
-          </p>
-        </section>
+      <section className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">🔥 Top Product This Week</h2>
+        <p className="text-xl">
+          {topProduct ? topProduct : 'No sales this week yet 😴'}
+        </p>
+      </section>
 
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold mb-2">📊 Weekly Sales Summary</h2>
-          {Object.entries(productSales).length > 0 ? (
-            <ul className="space-y-1">
-              {Object.entries(productSales).map(([name, qty]) => (
-                <li key={name}>
-                  {name}: <strong>{qty} unit(s)</strong>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No data yet</p>
-          )}
-        </section>
+      <section className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">📊 Weekly Sales Summary</h2>
+        {Object.entries(productSales).length > 0 ? (
+          <ul className="space-y-1">
+            {Object.entries(productSales).map(([name, qty]) => (
+              <li key={name}>
+                {name}: <strong>{qty} unit(s)</strong>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No data yet</p>
+        )}
+      </section>
 
-        <section className="mb-6">
-          <h2 className="text-lg font-semibold mb-2">⚠️ Reorder Suggestions</h2>
-          {reorderList.length > 0 ? (
-            <ul className="list-disc list-inside">
-              {reorderList.map((item, i) => (
-                <li key={i}>
-                  {item} stock is low. Suggest restocking soon 💡
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>All products are well-stocked ✅</p>
-          )}
-        </section>
-      </main>
-    </SwiftMindLayout>
+      <section className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">⚠️ Reorder Suggestions</h2>
+        {reorderList.length > 0 ? (
+          <ul className="list-disc list-inside">
+            {reorderList.map((item, i) => (
+              <li key={i}>
+                {item} stock is low. Suggest restocking soon 💡
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>All products are well-stocked ✅</p>
+        )}
+      </section>
+    </main>
   );
 }
+
 
 

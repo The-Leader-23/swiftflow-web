@@ -11,7 +11,6 @@ import {
   updateDoc,
   Timestamp,
 } from 'firebase/firestore';
-import SwiftMindLayout from '..//swiftmind/SwiftMindLayout';
 
 interface Product {
   id: string;
@@ -93,51 +92,50 @@ export default function OrdersPage() {
   };
 
   return (
-    <SwiftMindLayout>
-      <main className="max-w-3xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4">📦 Orders</h1>
+    <main className="max-w-3xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">📦 Orders</h1>
 
-        <div className="flex flex-col gap-4 mb-6">
-          <select
-            value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
-            className="border p-2 rounded"
-          >
-            <option value="">Select Product</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} – R{p.price} (Stock: {p.stock})
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="number"
-            min={1}
-            value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value))}
-            className="border p-2 rounded"
-            placeholder="Quantity"
-          />
-
-          <button
-            onClick={placeOrder}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-          >
-            Place Order
-          </button>
-        </div>
-
-        <h2 className="text-xl font-semibold mb-2">🧾 Order History</h2>
-        <ul className="space-y-2">
-          {orders.map((o) => (
-            <li key={o.id} className="border p-3 rounded shadow-sm">
-              <strong>{o.productName}</strong> – {o.quantity} unit(s) – Total: R{o.totalPrice}
-            </li>
+      <div className="flex flex-col gap-4 mb-6">
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          className="border p-2 rounded"
+        >
+          <option value="">Select Product</option>
+          {products.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} – R{p.price} (Stock: {p.stock})
+            </option>
           ))}
-        </ul>
-      </main>
-    </SwiftMindLayout>
+        </select>
+
+        <input
+          type="number"
+          min={1}
+          value={quantity}
+          onChange={(e) => setQuantity(parseInt(e.target.value))}
+          className="border p-2 rounded"
+          placeholder="Quantity"
+        />
+
+        <button
+          onClick={placeOrder}
+          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+        >
+          Place Order
+        </button>
+      </div>
+
+      <h2 className="text-xl font-semibold mb-2">🧾 Order History</h2>
+      <ul className="space-y-2">
+        {orders.map((o) => (
+          <li key={o.id} className="border p-3 rounded shadow-sm">
+            <strong>{o.productName}</strong> – {o.quantity} unit(s) – Total: R{o.totalPrice}
+          </li>
+        ))}
+      </ul>
+    </main>
   );
 }
+
 
