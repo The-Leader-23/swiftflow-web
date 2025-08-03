@@ -8,6 +8,8 @@ import {
   query,
 } from 'firebase/firestore';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/app/context/AuthContext';
 import { motion } from 'framer-motion';
 
 interface Business {
@@ -21,8 +23,12 @@ interface Business {
 
 export default function SwiftFlowHome() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const { user } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
+    setMounted(true);
     const loadAll = async () => {
       const q = query(collection(db, 'public_users'));
       const snap = await getDocs(q);
@@ -53,13 +59,24 @@ export default function SwiftFlowHome() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#fbc2eb] via-[#a6c1ee] to-[#fbc2eb] text-gray-900 px-6 py-10">
-      <motion.h1
-        className="text-4xl font-extrabold mb-10 text-center tracking-tight"
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        🛍️ Discover SwiftFlow Stores
-      </motion.h1>
+      <div className="flex justify-between items-center max-w-6xl mx-auto mb-10">
+        <motion.h1
+          className="text-4xl font-extrabold tracking-tight"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          🛍️ Discover SwiftFlow Stores
+        </motion.h1>
+
+        {mounted && !user && (
+          <button
+            onClick={() => router.push('/login')}
+            className="bg-white px-4 py-2 rounded-xl shadow text-sm hover:shadow-md transition font-semibold border border-gray-300"
+          >
+            Log in
+          </button>
+        )}
+      </div>
 
       {businesses.length === 0 ? (
         <p className="text-center text-gray-600 mt-20">No public stores yet.</p>
@@ -104,6 +121,7 @@ function StoreCard({ biz }: { biz: Business }) {
     </motion.div>
   );
 }
+
 
 
 
