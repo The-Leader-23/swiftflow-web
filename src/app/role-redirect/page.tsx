@@ -1,3 +1,4 @@
+// ✅ FINAL: role-redirect/page.tsx
 'use client';
 
 import { useEffect } from 'react';
@@ -24,9 +25,9 @@ export default function RoleRedirect() {
 
       if (role === 'entrepreneur') {
         if (!userData?.isRegistered) {
-          router.push('/swiftmind/setup'); // ✅ Correct route
+          router.push('/swiftflow/setup'); // ✅ new unified setup route
         } else {
-          router.push('/swiftmind/dashboard');
+          router.push('/swiftflow/dashboard'); // ✅ merged dashboard
         }
       } else {
         router.push('/swiftflow');

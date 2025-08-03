@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
-import { getDocs, collection, query } from 'firebase/firestore';
+import {
+  getDocs,
+  collection,
+  query,
+} from 'firebase/firestore';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 
@@ -48,9 +52,9 @@ export default function SwiftFlowHome() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-[#0f172a] to-black text-white px-6 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-[#fbc2eb] via-[#a6c1ee] to-[#fbc2eb] text-gray-900 px-6 py-10">
       <motion.h1
-        className="text-4xl font-extrabold mb-6 text-white text-center tracking-tight"
+        className="text-4xl font-extrabold mb-10 text-center tracking-tight"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
       >
@@ -58,7 +62,7 @@ export default function SwiftFlowHome() {
       </motion.h1>
 
       {businesses.length === 0 ? (
-        <p className="text-center text-gray-400 mt-20">No public stores yet.</p>
+        <p className="text-center text-gray-600 mt-20">No public stores yet.</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
           {businesses.map((biz) => (
@@ -74,11 +78,11 @@ function StoreCard({ biz }: { biz: Business }) {
   return (
     <motion.div
       whileHover={{ scale: 1.05 }}
-      className="bg-white/5 backdrop-blur-md border border-gray-700 rounded-2xl overflow-hidden p-5 hover:shadow-xl transition cursor-pointer"
+      className="bg-white border border-gray-200 rounded-2xl overflow-hidden p-5 shadow-md hover:shadow-xl transition cursor-pointer"
     >
       <Link href={`/swiftflow/store/${biz.id}`}>
         <div className="flex flex-col items-center text-center">
-          <div className="w-20 h-20 rounded-full overflow-hidden bg-white/10 border border-gray-400 mb-4">
+          <div className="w-20 h-20 rounded-full overflow-hidden bg-white border border-gray-300 mb-4">
             {biz.logoUrl ? (
               <img
                 src={biz.logoUrl}
@@ -86,24 +90,21 @@ function StoreCard({ biz }: { biz: Business }) {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-xs text-gray-300">
+              <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
                 No Logo
               </div>
             )}
           </div>
 
-          <h2 className="text-xl font-bold text-white mb-1">
-            {biz.businessName}
-          </h2>
-          <p className="text-sm text-purple-300 mb-1">
-            {biz.businessType}
-          </p>
-          <p className="text-sm text-gray-400 line-clamp-3">{biz.bio}</p>
+          <h2 className="text-xl font-bold mb-1">{biz.businessName}</h2>
+          <p className="text-sm text-blue-600 mb-1">{biz.businessType}</p>
+          <p className="text-sm text-gray-600 line-clamp-3">{biz.bio}</p>
         </div>
       </Link>
     </motion.div>
   );
 }
+
 
 
 

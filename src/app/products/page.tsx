@@ -5,10 +5,15 @@ import { db } from '@/lib/firebase';
 import {
   addDoc,
   collection,
+  doc,
+  getDoc,
+  getDocs,
   onSnapshot,
+  updateDoc,
   Timestamp,
 } from 'firebase/firestore';
-import SwiftMindLayout from '..//swiftmind/SwiftMindLayout';
+import { useAuth } from '@/app/context/AuthContext';
+import toast from 'react-hot-toast';
 
 interface Product {
   id: string;
@@ -19,8 +24,22 @@ interface Product {
   createdAt?: Timestamp;
 }
 
+interface Order {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  total: number;
+  createdAt?: Timestamp;
+  proofUrl?: string;
+  status?: string;
+}
+
 export default function ProductsPage() {
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'bank'>('products');
   const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [bankDetails, setBankDetails] = useState('');
   const [form, setForm] = useState({
     name: '',
     price: '',
@@ -29,16 +48,45 @@ export default function ProductsPage() {
   });
 
   useEffect(() => {
+    if (!user) return;
+
     const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
+        ...(doc.data() as Product),
         id: doc.id,
-        ...doc.data(),
-      })) as Product[];
+      }));
       setProducts(data);
     });
 
+    const loadUser = async () => {
+      const ref = doc(db, 'users', user.uid);
+      const snap = await getDoc(ref);
+      if (snap.exists() && snap.data().bankDetails) {
+        setBankDetails(snap.data().bankDetails);
+      }
+
+      const ordersSnap = await getDocs(collection(db, 'users', user.uid, 'orders'));
+      const allOrders = ordersSnap.docs.map((doc) => ({
+        ...(doc.data() as Order),
+        id: doc.id,
+      }));
+      setOrders(allOrders);
+    };
+
+    loadUser();
     return () => unsub();
-  }, []);
+  }, [user]);
+
+  const saveBankDetails = async () => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { bankDetails });
+      await updateDoc(doc(db, 'public_users', user.uid), { bankDetails });
+      toast.success('Bank details saved!');
+    } catch (err) {
+      toast.error('Failed to save bank details.');
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -60,40 +108,144 @@ export default function ProductsPage() {
   };
 
   return (
-    <SwiftMindLayout>
-      <main className="max-w-3xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4">🛒 Products DB</h1>
+    <div className="max-w-4xl mx-auto p-6 space-y-10">
+      <h1 className="text-3xl font-bold mb-4">Entrepreneur Dashboard</h1>
 
-        <div className="grid gap-4 mb-6">
-          {['name', 'price', 'stock', 'category'].map((field) => (
-            <input
-              key={field}
-              name={field}
-              placeholder={field.toUpperCase()}
-              value={(form as any)[field]}
-              onChange={handleChange}
-              className="border rounded p-2"
-            />
-          ))}
+      <div className="flex gap-4 mb-6">
+        <button
+          className={`tab-button ${activeTab === 'products' ? 'font-bold underline' : ''}`}
+          onClick={() => setActiveTab('products')}
+        >
+          Products
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'orders' ? 'font-bold underline' : ''}`}
+          onClick={() => setActiveTab('orders')}
+        >
+          Orders
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'bank' ? 'font-bold underline' : ''}`}
+          onClick={() => setActiveTab('bank')}
+        >
+          Bank Info
+        </button>
+      </div>
+
+      {activeTab === 'products' && (
+        <section>
+          <h2 className="text-2xl font-semibold mb-3">🛒 Add Product</h2>
+          <div className="grid gap-4 mb-6">
+            {['name', 'price', 'stock', 'category'].map((field) => (
+              <input
+                key={field}
+                name={field}
+                placeholder={field.toUpperCase()}
+                value={(form as any)[field]}
+                onChange={handleChange}
+                className="border rounded p-2"
+              />
+            ))}
+            <button
+              onClick={handleSubmit}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Add Product
+            </button>
+          </div>
+
+          <h2 className="text-xl font-semibold mb-2">📦 All Products</h2>
+          <ul className="space-y-2">
+            {products.map((p) => (
+              <li key={p.id} className="border p-3 rounded shadow-sm">
+                <strong>{p.name}</strong> – R{p.price} – Stock: {p.stock} – {p.category}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {activeTab === 'orders' && (
+        <section>
+          <h2 className="text-2xl font-semibold mb-3">📄 Orders</h2>
+          {orders.length === 0 ? (
+            <p>No orders yet.</p>
+          ) : (
+            <ul className="space-y-4">
+              {orders.map((o) => (
+                <li key={o.id} className="border p-4 rounded-xl shadow bg-white/90">
+                  <div className="flex justify-between items-center mb-1">
+                    <h3 className="text-lg font-bold">{o.customerName}</h3>
+                    {o.status === 'paid' ? (
+                      <span className="bg-green-200 text-green-800 text-xs font-bold px-2 py-1 rounded-full">PAID</span>
+                    ) : (
+                      <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full">Pending</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-700">📞 {o.customerPhone}</p>
+                  <p className="text-sm text-gray-700">💰 Total: R{o.total}</p>
+                  <p className="text-sm text-gray-600">🗓️ {o.createdAt?.toDate().toLocaleString()}</p>
+
+                  {o.proofUrl && (
+                    <div className="mt-3">
+                      <p className="text-sm font-medium text-gray-800 mb-1">📸 Proof of Payment:</p>
+                      <img
+                        src={o.proofUrl}
+                        alt="Payment Proof"
+                        className="w-full max-w-xs rounded shadow border"
+                      />
+                    </div>
+                  )}
+
+                  {o.status !== 'paid' && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await updateDoc(doc(db, 'users', user!.uid, 'orders', o.id), {
+                            status: 'paid',
+                          });
+                          toast.success(`Marked order as paid ✅`);
+                          setOrders((prev) =>
+                            prev.map((ord) =>
+                              ord.id === o.id ? { ...ord, status: 'paid' } : ord
+                            )
+                          );
+                        } catch (err) {
+                          toast.error('Failed to mark as paid');
+                        }
+                      }}
+                      className="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                    >
+                      ✅ Mark as Paid
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {activeTab === 'bank' && (
+        <section>
+          <h2 className="text-2xl font-semibold mb-3">🏦 Bank Info</h2>
+          <textarea
+            value={bankDetails}
+            onChange={(e) => setBankDetails(e.target.value)}
+            className="w-full border rounded p-2 h-28"
+            placeholder="Enter your banking information here..."
+          />
           <button
-            onClick={handleSubmit}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            onClick={saveBankDetails}
+            className="bg-green-600 text-white px-4 py-2 mt-2 rounded hover:bg-green-700"
           >
-            Add Product
+            Save Bank Info
           </button>
-        </div>
-
-        <h2 className="text-xl font-semibold mb-2">🧾 All Products</h2>
-        <ul className="space-y-2">
-          {products.map((p) => (
-            <li key={p.id} className="border p-3 rounded shadow-sm">
-              <strong>{p.name}</strong> – R{p.price} – Stock: {p.stock} – {p.category}
-            </li>
-          ))}
-        </ul>
-      </main>
-    </SwiftMindLayout>
+        </section>
+      )}
+    </div>
   );
 }
+
 
 

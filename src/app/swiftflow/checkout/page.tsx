@@ -1,172 +1,267 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase';
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+  doc,
+  getDoc,
+  updateDoc,
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
 
 export default function CheckoutPage() {
   const [cart, setCart] = useState<any[]>([]);
+  const [storeId, setStoreId] = useState<string | null>(null);
   const [customer, setCustomer] = useState({ name: '', phone: '' });
+  const [bankDetails, setBankDetails] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [proofUrl, setProofUrl] = useState('');
+
   const router = useRouter();
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
     setCart(stored);
+    if (stored.length > 0 && stored[0].storeId) {
+      setStoreId(stored[0].storeId);
+    }
   }, []);
 
+  useEffect(() => {
+    if (!storeId) return;
+
+    const fetchBankDetails = async () => {
+      try {
+        const refDoc = doc(db, 'users', storeId);
+        const snap = await getDoc(refDoc);
+        if (snap.exists()) {
+          setBankDetails(snap.data()?.bankDetails || null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch bank details:', err);
+      }
+    };
+
+    fetchBankDetails();
+  }, [storeId]);
+
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const storeId = cart[0]?.storeId;
-
-  const sendWhatsAppMessage = () => {
-    const message = `Hi! I'd like to place an order:\n\n${cart
-      .map((item) => `- ${item.name} x${item.quantity} (R${item.price})`)
-      .join('\n')}\n\nTotal: R${total}\n\nName: ${customer.name}\nPhone: ${customer.phone}`;
-
-    const encoded = encodeURIComponent(message);
-    window.open(`https://wa.me/?text=${encoded}`, '_blank');
-  };
 
   const handleInAppCheckout = async () => {
-    if (!customer.name || !customer.phone || !storeId) return;
+    if (!customer.name || !customer.phone || !cart.length || !storeId) {
+      toast.error('Please fill in all details and ensure cart is not empty.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await addDoc(collection(db, 'users', storeId, 'orders'), {
+      const docRef = await addDoc(collection(db, 'users', storeId, 'orders'), {
         customerName: customer.name,
         customerPhone: customer.phone,
         cartItems: cart,
         total,
+        isPaidPending: true,
         createdAt: serverTimestamp(),
       });
 
+      setOrderId(docRef.id);
       setSuccess(true);
       localStorage.removeItem('swiftflow_cart');
       setCart([]);
     } catch (err) {
       console.error('Order failed:', err);
+      toast.error('Failed to place order.');
     } finally {
       setLoading(false);
     }
   };
 
-  const recommended = cart.length > 0 ? cart.slice(0, 2) : [];
+  const handleProofUpload = async () => {
+    if (!proofFile || !orderId || !storeId) return;
+
+    const fileRef = ref(storage, `proofs/${storeId}/${orderId}/proof.jpg`);
+    setUploading(true);
+
+    try {
+      await uploadBytes(fileRef, proofFile);
+      const url = await getDownloadURL(fileRef);
+      setProofUrl(url);
+
+      await updateDoc(doc(db, 'users', storeId, 'orders', orderId), {
+        proofUrl: url,
+        isProofUploaded: true,
+      });
+
+      toast.success('✅ Payment proof uploaded!');
+    } catch (err) {
+      toast.error('Failed to upload.');
+      console.error(err);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
+    <div className="max-w-3xl mx-auto p-6 bg-gradient-to-b from-[#f1fbc2eb] via-[#a6c1ee] to-[#f1fbc2eb] min-h-screen rounded-xl shadow-xl">
+      <Toaster />
       <motion.h1
-        className="text-3xl font-bold mb-6"
+        className="text-4xl font-extrabold text-white drop-shadow mb-8"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
       >
         🧾 Checkout
       </motion.h1>
 
-      {cart.length === 0 ? (
-        <p className="text-gray-500">Your cart is empty.</p>
+      {cart.length === 0 && !success ? (
+        <p className="text-white/80">Your cart is empty.</p>
       ) : success ? (
-        <motion.div
-          className="bg-green-100 text-green-800 p-4 rounded"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-        >
-          🎉 Order sent successfully!
-          <button
-            className="block mt-4 text-blue-600 underline"
-            onClick={() => router.push('/')}
-          >
-            Back to home
-          </button>
-        </motion.div>
-      ) : (
         <>
           <motion.div
-            className="space-y-4 mb-6"
+            className="bg-white/20 text-green-200 p-4 rounded-xl shadow"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
           >
+            🎉 Order sent successfully!
+            <button
+              className="block mt-4 text-white underline"
+              onClick={() => router.push('/')}
+            >
+              Back to home
+            </button>
+          </motion.div>
+
+          {/* Bank Details */}
+          {bankDetails && (
+            <motion.div
+              className="bg-white/80 p-4 rounded-xl shadow mt-8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              <h2 className="text-lg font-bold text-gray-800 mb-2">💳 Pay via Bank Transfer</h2>
+              <p className="text-sm text-gray-700"><strong>Bank:</strong> {bankDetails.bankName}</p>
+              <p className="text-sm text-gray-700"><strong>Account Holder:</strong> {bankDetails.accountHolder}</p>
+
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-gray-700"><strong>Account Number:</strong> {bankDetails.accountNumber}</p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(bankDetails.accountNumber);
+                    toast.success('✅ Account number copied!');
+                  }}
+                  className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded hover:bg-blue-200 transition"
+                >
+                  📋 Copy
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-700 mt-2">
+                <strong>Reference:</strong> <span className="text-blue-800 font-medium">{customer.name || 'Your Name'}</span>
+              </p>
+
+              <div className="mt-4 text-sm text-gray-700 leading-relaxed">
+                ✅ <strong>Please use your name as the payment reference</strong> so we can identify your order.<br />
+                📸 After payment, send a screenshot of the proof via WhatsApp, email, or upload below.<br />
+                📩 Email: <strong>{bankDetails.paymentEmail || 'payments@swiftflow.africa'}</strong>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Upload Proof Section */}
+          <motion.div
+            className="bg-white/90 p-4 rounded-xl shadow mt-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <h2 className="text-lg font-bold text-gray-800 mb-3">📤 Upload Proof of Payment</h2>
+
+            {proofUrl ? (
+              <img src={proofUrl} alt="Proof" className="w-full max-w-sm rounded shadow" />
+            ) : (
+              <>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  className="block mb-3"
+                />
+                <button
+                  disabled={!proofFile || uploading}
+                  onClick={handleProofUpload}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition disabled:opacity-50"
+                >
+                  {uploading ? 'Uploading...' : 'Upload Payment Proof'}
+                </button>
+              </>
+            )}
+          </motion.div>
+        </>
+      ) : (
+        <>
+          {/* Checkout form */}
+          <motion.div className="space-y-4 mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
             {cart.map((item, index) => (
-              <div key={index} className="flex justify-between border p-2 rounded bg-white">
+              <div key={index} className="flex justify-between border border-white/20 p-2 rounded-xl bg-white/30 text-white">
                 <span>{item.name} x{item.quantity}</span>
                 <span>R{(item.price * item.quantity).toFixed(2)}</span>
               </div>
             ))}
-            <div className="text-right font-bold text-lg">
+            <div className="text-right font-bold text-xl text-white">
               Total: R{total.toFixed(2)}
             </div>
           </motion.div>
 
-          <motion.div
-            className="space-y-4 mb-6"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-          >
+          <motion.div className="space-y-4 mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             <input
               type="text"
               placeholder="Your Name"
-              className="w-full border rounded px-4 py-2"
+              className="w-full bg-white/90 rounded-xl px-4 py-3 text-black placeholder-gray-500"
               value={customer.name}
               onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
             />
             <input
               type="tel"
               placeholder="Phone Number"
-              className="w-full border rounded px-4 py-2"
+              className="w-full bg-white/90 rounded-xl px-4 py-3 text-black placeholder-gray-500"
               value={customer.phone}
               onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
             />
           </motion.div>
 
-          <motion.div
-            className="flex flex-col sm:flex-row gap-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-          >
+          <motion.div className="flex flex-col sm:flex-row gap-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
             <button
-              onClick={sendWhatsAppMessage}
-              className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+              onClick={() => {
+                const message = `Hi! I'd like to place an order:\n\n${cart
+                  .map((item) => `- ${item.name} x${item.quantity} (R${item.price})`)
+                  .join('\n')}\n\nTotal: R${total}\n\nName: ${customer.name}\nPhone: ${customer.phone}`;
+                const encoded = encodeURIComponent(message);
+                window.open(`https://wa.me/?text=${encoded}`, '_blank');
+              }}
+              className="w-full bg-green-600 text-white px-4 py-3 rounded-xl hover:bg-green-700 transition shadow"
             >
               📲 Checkout via WhatsApp
             </button>
             <button
               onClick={handleInAppCheckout}
               disabled={loading}
-              className="w-full bg-black text-white px-4 py-2 rounded hover:bg-gray-800 transition"
+              className="w-full bg-white text-[#121212] font-semibold px-4 py-3 rounded-xl hover:bg-gray-100 transition shadow"
             >
-              {loading ? 'Sending Order...' : '🧾 Checkout via App'}
+              {loading ? 'Sending Order...' : '🧾 Place Order (Manual Payment)'}
             </button>
           </motion.div>
-
-          {recommended.length > 0 && (
-            <motion.div
-              className="mt-10"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-            >
-              <h2 className="text-xl font-semibold mb-3">🛍️ You might also like:</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {recommended.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 border rounded bg-white shadow"
-                  >
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-gray-600">R{item.price}</p>
-                    <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
         </>
       )}
     </div>
   );
 }
+
