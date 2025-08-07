@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import {
   addDoc,
   collection,
@@ -9,6 +9,7 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  setDoc,
   updateDoc,
   Timestamp,
 } from 'firebase/firestore';
@@ -50,7 +51,7 @@ export default function ProductsPage() {
   useEffect(() => {
     if (!user) return;
 
-    const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const unsub = onSnapshot(collection(db, 'users', user.uid, 'products'), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
         ...(doc.data() as Product),
         id: doc.id,
@@ -93,18 +94,35 @@ export default function ProductsPage() {
   };
 
   const handleSubmit = async () => {
+    if (!user) return;
     const { name, price, stock, category } = form;
     if (!name || !price || !stock || !category) return alert('Fill in all fields!');
 
-    await addDoc(collection(db, 'products'), {
-      name,
-      price: parseFloat(price),
-      stock: parseInt(stock),
-      category,
-      createdAt: Timestamp.now(),
-    });
+    try {
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'products'), {
+        name,
+        price: parseFloat(price),
+        stock: parseInt(stock),
+        category,
+        createdAt: Timestamp.now(),
+      });
 
-    setForm({ name: '', price: '', stock: '', category: '' });
+      // Sync to public_products
+      await setDoc(doc(db, 'public_products', docRef.id), {
+        name,
+        price: parseFloat(price),
+        stock: parseInt(stock),
+        category,
+        ownerId: user.uid,
+        isVisible: true,
+        createdAt: Timestamp.now(),
+      });
+
+      setForm({ name: '', price: '', stock: '', category: '' });
+      toast.success('Product added!');
+    } catch (err) {
+      toast.error('Failed to add product');
+    }
   };
 
   return (
@@ -112,24 +130,15 @@ export default function ProductsPage() {
       <h1 className="text-3xl font-bold mb-4">Entrepreneur Dashboard</h1>
 
       <div className="flex gap-4 mb-6">
-        <button
-          className={`tab-button ${activeTab === 'products' ? 'font-bold underline' : ''}`}
-          onClick={() => setActiveTab('products')}
-        >
-          Products
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'orders' ? 'font-bold underline' : ''}`}
-          onClick={() => setActiveTab('orders')}
-        >
-          Orders
-        </button>
-        <button
-          className={`tab-button ${activeTab === 'bank' ? 'font-bold underline' : ''}`}
-          onClick={() => setActiveTab('bank')}
-        >
-          Bank Info
-        </button>
+        {['products', 'orders', 'bank'].map((tab) => (
+          <button
+            key={tab}
+            className={`tab-button ${activeTab === tab ? 'font-bold underline' : ''}`}
+            onClick={() => setActiveTab(tab as any)}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
       </div>
 
       {activeTab === 'products' && (
@@ -172,55 +181,76 @@ export default function ProductsPage() {
             <p>No orders yet.</p>
           ) : (
             <ul className="space-y-4">
-              {orders.map((o) => (
-                <li key={o.id} className="border p-4 rounded-xl shadow bg-white/90">
-                  <div className="flex justify-between items-center mb-1">
-                    <h3 className="text-lg font-bold">{o.customerName}</h3>
-                    {o.status === 'paid' ? (
-                      <span className="bg-green-200 text-green-800 text-xs font-bold px-2 py-1 rounded-full">PAID</span>
-                    ) : (
-                      <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full">Pending</span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-700">📞 {o.customerPhone}</p>
-                  <p className="text-sm text-gray-700">💰 Total: R{o.total}</p>
-                  <p className="text-sm text-gray-600">🗓️ {o.createdAt?.toDate().toLocaleString()}</p>
-
-                  {o.proofUrl && (
-                    <div className="mt-3">
-                      <p className="text-sm font-medium text-gray-800 mb-1">📸 Proof of Payment:</p>
-                      <img
-                        src={o.proofUrl}
-                        alt="Payment Proof"
-                        className="w-full max-w-xs rounded shadow border"
-                      />
+              {orders
+                .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0))
+                .map((o) => (
+                  <li key={o.id} className="border p-4 rounded-xl shadow bg-white/90">
+                    <div className="flex justify-between items-center mb-1">
+                      <h3 className="text-lg font-bold">{o.customerName}</h3>
+                      {o.status === 'paid' ? (
+                        <span className="bg-green-200 text-green-800 text-xs font-bold px-2 py-1 rounded-full">
+                          PAID
+                        </span>
+                      ) : o.proofUrl ? (
+                        <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full">
+                          🟢 New Proof Uploaded
+                        </span>
+                      ) : (
+                        <span className="bg-gray-200 text-gray-700 text-xs font-medium px-2 py-1 rounded-full">
+                          Pending
+                        </span>
+                      )}
                     </div>
-                  )}
 
-                  {o.status !== 'paid' && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          await updateDoc(doc(db, 'users', user!.uid, 'orders', o.id), {
-                            status: 'paid',
-                          });
-                          toast.success(`Marked order as paid ✅`);
-                          setOrders((prev) =>
-                            prev.map((ord) =>
-                              ord.id === o.id ? { ...ord, status: 'paid' } : ord
-                            )
-                          );
-                        } catch (err) {
-                          toast.error('Failed to mark as paid');
-                        }
-                      }}
-                      className="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                    >
-                      ✅ Mark as Paid
-                    </button>
-                  )}
-                </li>
-              ))}
+                    <p className="text-sm text-gray-700">📞 {o.customerPhone}</p>
+                    <p className="text-sm text-gray-700">💰 Total: R{o.total}</p>
+                    <p className="text-sm text-gray-600">
+                      🗓️ {o.createdAt?.toDate().toLocaleString()}
+                    </p>
+
+                    <div className="mt-3">
+                      {o.proofUrl ? (
+                        <>
+                          <p className="text-sm font-medium text-gray-800 mb-1">
+                            📸 Proof of Payment:
+                          </p>
+                          <img
+                            src={o.proofUrl}
+                            alt="Payment Proof"
+                            className="w-full max-w-xs rounded shadow border"
+                          />
+                        </>
+                      ) : (
+                        <p className="text-sm text-red-600 font-medium">
+                          ❌ No payment proof uploaded yet.
+                        </p>
+                      )}
+                    </div>
+
+                    {o.status !== 'paid' && o.proofUrl && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'users', user!.uid, 'orders', o.id), {
+                              status: 'paid',
+                            });
+                            toast.success(`✅ Marked as paid!`);
+                            setOrders((prev) =>
+                              prev.map((ord) =>
+                                ord.id === o.id ? { ...ord, status: 'paid' } : ord
+                              )
+                            );
+                          } catch (err) {
+                            toast.error('❌ Failed to mark as paid');
+                          }
+                        }}
+                        className="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+                      >
+                        ✅ Mark as Paid
+                      </button>
+                    )}
+                  </li>
+                ))}
             </ul>
           )}
         </section>
@@ -246,6 +276,7 @@ export default function ProductsPage() {
     </div>
   );
 }
+
 
 
 

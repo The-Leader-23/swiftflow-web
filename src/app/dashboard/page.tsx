@@ -1,14 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db, storage } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase.client';
 import {
   collection,
   getDocs,
   onSnapshot,
-  updateDoc,
   addDoc,
+  doc,
+  setDoc,
+  updateDoc,
   Timestamp,
+  query,
+  where,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
 import {
   ref,
@@ -17,6 +23,8 @@ import {
 } from 'firebase/storage';
 import { useAuth } from '@/app/context/AuthContext';
 import EmailSettings from './EmailSettings';
+import SalesChart from './charts';
+import toast from 'react-hot-toast'; // for notifications
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -24,23 +32,28 @@ export default function Dashboard() {
   const [totalOrders, setTotalOrders] = useState(0);
   const [lowStock, setLowStock] = useState<string[]>([]);
 
-  // Product creation states
   const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '' });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayTimestamp = Timestamp.fromDate(today);
 
     const getRevenue = async () => {
-      const q = collection(db, 'finance');
+      const q = query(
+        collection(db, 'users', user.uid, 'finance'),
+        where('timestamp', '>=', todayTimestamp)
+      );
       const snap = await getDocs(q);
+
       let total = 0;
       snap.forEach((doc) => {
         const data = doc.data();
-        if (data.type === 'income' && data.timestamp?.seconds >= todayTimestamp.seconds) {
+        if (data.type === 'income') {
           total += data.amount || 0;
         }
       });
@@ -48,28 +61,60 @@ export default function Dashboard() {
     };
 
     const getOrders = async () => {
-      const q = collection(db, 'orders');
+      const q = query(
+        collection(db, 'users', user.uid, 'orders'),
+        where('timestamp', '>=', todayTimestamp)
+      );
       const snap = await getDocs(q);
-      const filtered = snap.docs.filter(doc => doc.data().timestamp?.seconds >= todayTimestamp.seconds);
-      setTotalOrders(filtered.length);
+      setTotalOrders(snap.size);
     };
 
-    const getLowStock = () => {
-      const unsub = onSnapshot(collection(db, 'products'), (snap) => {
-        const lows = snap.docs
-          .filter((doc) => (doc.data().stock || 0) <= 5)
-          .map((doc) => doc.data().name);
-        setLowStock(lows);
-      });
-      return () => unsub();
-    };
+    const unsubStock = onSnapshot(collection(db, 'users', user.uid, 'products'), (snap) => {
+      const lows = snap.docs
+        .filter((doc) => (doc.data().stock || 0) <= 5)
+        .map((doc) => doc.data().name);
+      setLowStock(lows);
+    });
 
     getRevenue();
     getOrders();
-    const unsubProducts = getLowStock();
 
-    return () => unsubProducts();
-  }, []);
+    return () => unsubStock();
+  }, [user]);
+
+  // ✅ Real-time notification for new orders
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(
+      collection(db, 'users', user.uid, 'orders'),
+      orderBy('timestamp', 'desc'),
+      limit(1)
+    );
+
+    let lastOrderId: string | null = null;
+
+    const unsub = onSnapshot(q, (snapshot) => {
+      const latest = snapshot.docs[0];
+      if (!latest) return;
+
+      const data = latest.data();
+      const orderId = latest.id;
+
+      // Skip first load
+      if (!lastOrderId) {
+        lastOrderId = orderId;
+        return;
+      }
+
+      if (orderId !== lastOrderId) {
+        lastOrderId = orderId;
+        toast.success(`🛒 New order from ${data.customerName || 'someone'}!`);
+      }
+    });
+
+    return () => unsub();
+  }, [user]);
 
   const addProduct = async () => {
     if (!user) return;
@@ -84,15 +129,9 @@ export default function Dashboard() {
 
     if (imageFile) {
       try {
-        console.log('👤 User:', user?.uid);
-        console.log('📄 File:', imageFile.name, imageFile.type, imageFile.size);
-
         const storageRef = ref(storage, `products/${user.uid}/${Date.now()}_${imageFile.name}`);
         await uploadBytes(storageRef, imageFile);
-        console.log('✅ Upload successful!');
-
         imageUrl = await getDownloadURL(storageRef);
-        console.log('🌐 Image URL:', imageUrl);
       } catch (error) {
         console.error('❌ Image upload failed:', error);
         alert('Image upload failed. Please try a smaller JPG or PNG file.');
@@ -102,13 +141,25 @@ export default function Dashboard() {
     }
 
     try {
-      await addDoc(collection(db, 'products'), {
+      const privateRef = await addDoc(collection(db, 'users', user.uid, 'products'), {
         name,
         price: parseFloat(price),
         stock: parseInt(stock),
         imageUrl,
         createdAt: Timestamp.now(),
       });
+
+      // Sync to public_products
+      await setDoc(doc(db, 'public_products', privateRef.id), {
+        name,
+        price: parseFloat(price),
+        stock: parseInt(stock),
+        imageUrl,
+        ownerId: user.uid,
+        isVisible: true,
+        createdAt: Timestamp.now(),
+      });
+
       setNewProduct({ name: '', price: '', stock: '' });
       setImageFile(null);
     } catch (err) {
@@ -188,9 +239,14 @@ export default function Dashboard() {
       </div>
 
       {/* 📧 Email Report Settings */}
-      <EmailSettings userId="admin_001" />
+      <EmailSettings userId={user?.uid || ''} />
+
+      {/* 📊 Sales chart */}
+      {user && <SalesChart userId={user.uid} />}
     </main>
   );
 }
+
+
 
 

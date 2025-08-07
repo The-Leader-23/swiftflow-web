@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { auth, db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase.client';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function RoleRedirect() {

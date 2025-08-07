@@ -3,7 +3,7 @@
 import { useEffect, useState, ChangeEvent } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 import toast, { Toaster } from 'react-hot-toast';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import {
   collection,
   getDocs,

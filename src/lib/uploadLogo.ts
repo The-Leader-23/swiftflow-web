@@ -1,5 +1,5 @@
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { storage } from './firebase';
+import { storage } from './firebase.client';
 
 /**
  * Uploads a brand logo to Firebase Storage at logos/{userId}

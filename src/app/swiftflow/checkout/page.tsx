@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db, storage } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase.client';
 import {
   collection,
   addDoc,
@@ -127,28 +127,25 @@ export default function CheckoutPage() {
         <p className="text-white/80">Your cart is empty.</p>
       ) : success ? (
         <>
+          {/* 🎉 Order Confirmation */}
           <motion.div
-            className="bg-white/20 text-green-200 p-4 rounded-xl shadow"
+            className="bg-green-600/80 text-white p-5 rounded-xl shadow mb-6 text-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
-            🎉 Order sent successfully!
-            <button
-              className="block mt-4 text-white underline"
-              onClick={() => router.push('/')}
-            >
-              Back to home
-            </button>
+            🎉 Your order was placed successfully!
+            <br />
+            <span className="text-sm block mt-1">Please complete payment below to confirm it.</span>
           </motion.div>
 
-          {/* Bank Details */}
+          {/* 💳 Bank Details */}
           {bankDetails && (
             <motion.div
-              className="bg-white/80 p-4 rounded-xl shadow mt-8"
+              className="bg-white/80 p-4 rounded-xl shadow mt-6"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
-              <h2 className="text-lg font-bold text-gray-800 mb-2">💳 Pay via Bank Transfer</h2>
+              <h2 className="text-lg font-bold text-gray-800 mb-2">💳 Bank Transfer Instructions</h2>
               <p className="text-sm text-gray-700"><strong>Bank:</strong> {bankDetails.bankName}</p>
               <p className="text-sm text-gray-700"><strong>Account Holder:</strong> {bankDetails.accountHolder}</p>
 
@@ -170,20 +167,20 @@ export default function CheckoutPage() {
               </p>
 
               <div className="mt-4 text-sm text-gray-700 leading-relaxed">
-                ✅ <strong>Please use your name as the payment reference</strong> so we can identify your order.<br />
-                📸 After payment, send a screenshot of the proof via WhatsApp, email, or upload below.<br />
+                ✅ <strong>Use your name as the reference</strong> so we can match your order.<br />
+                📸 After payment, upload proof below or send via WhatsApp/email.<br />
                 📩 Email: <strong>{bankDetails.paymentEmail || 'payments@swiftflow.africa'}</strong>
               </div>
             </motion.div>
           )}
 
-          {/* Upload Proof Section */}
+          {/* 🖼 Upload Proof Section */}
           <motion.div
-            className="bg-white/90 p-4 rounded-xl shadow mt-8"
+            className="bg-white/90 p-4 rounded-xl shadow mt-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
-            <h2 className="text-lg font-bold text-gray-800 mb-3">📤 Upload Proof of Payment</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-3">📤 Upload Payment Proof</h2>
 
             {proofUrl ? (
               <img src={proofUrl} alt="Proof" className="w-full max-w-sm rounded shadow" />
@@ -198,9 +195,9 @@ export default function CheckoutPage() {
                 <button
                   disabled={!proofFile || uploading}
                   onClick={handleProofUpload}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition disabled:opacity-50"
+                  className="bg-gradient-to-r from-green-500 to-green-700 text-white px-4 py-2 rounded-xl hover:brightness-110 transition disabled:opacity-50"
                 >
-                  {uploading ? 'Uploading...' : 'Upload Payment Proof'}
+                  {uploading ? 'Uploading...' : '✅ Upload Proof'}
                 </button>
               </>
             )}
@@ -208,7 +205,7 @@ export default function CheckoutPage() {
         </>
       ) : (
         <>
-          {/* Checkout form */}
+          {/* 🛍 Order Summary */}
           <motion.div className="space-y-4 mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
             {cart.map((item, index) => (
               <div key={index} className="flex justify-between border border-white/20 p-2 rounded-xl bg-white/30 text-white">
@@ -221,6 +218,7 @@ export default function CheckoutPage() {
             </div>
           </motion.div>
 
+          {/* 👤 Customer Details */}
           <motion.div className="space-y-4 mb-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             <input
               type="text"
@@ -238,6 +236,7 @@ export default function CheckoutPage() {
             />
           </motion.div>
 
+          {/* 📲 Actions */}
           <motion.div className="flex flex-col sm:flex-row gap-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
             <button
               onClick={() => {
@@ -254,7 +253,7 @@ export default function CheckoutPage() {
             <button
               onClick={handleInAppCheckout}
               disabled={loading}
-              className="w-full bg-white text-[#121212] font-semibold px-4 py-3 rounded-xl hover:bg-gray-100 transition shadow"
+              className="w-full bg-gradient-to-r from-yellow-300 to-yellow-500 text-[#121212] font-semibold px-4 py-3 rounded-xl hover:brightness-105 transition shadow"
             >
               {loading ? 'Sending Order...' : '🧾 Place Order (Manual Payment)'}
             </button>

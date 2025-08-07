@@ -111,15 +111,17 @@ export default function CartPage() {
                           +
                         </button>
                       </div>
-                      <p className="text-sm text-white/90 mt-1">R{item.price} each</p>
+                      <p className="text-sm text-white/90 mt-1">
+                        R{item.price} each
+                      </p>
                     </div>
                   </div>
 
                   <button
                     onClick={() => removeItem(index)}
-                    className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded-lg transition"
+                    className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white font-bold text-xs px-4 py-2 rounded-full transition shadow-lg"
                   >
-                    Remove
+                    ❌ Remove
                   </button>
                 </motion.div>
               ))}
@@ -136,9 +138,9 @@ export default function CartPage() {
             </p>
             <button
               onClick={() => router.push('/swiftflow/checkout')}
-              className="bg-white text-[#121212] font-semibold px-6 py-3 rounded-lg hover:bg-[#f2f2f2] transition shadow"
+              className="bg-gradient-to-r from-yellow-300 to-yellow-500 text-[#121212] font-bold px-6 py-3 rounded-xl hover:brightness-110 transition shadow-lg"
             >
-              Proceed to Checkout
+              🚀 Proceed to Checkout
             </button>
           </motion.div>
         </>

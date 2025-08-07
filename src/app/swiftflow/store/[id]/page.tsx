@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import {
   collection,
   getDocs,
@@ -22,7 +22,7 @@ export default function StorefrontPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSize, setSelectedSize] = useState('');
-  const [showGoToCart, setShowGoToCart] = useState(false);
+  const [justAdded, setJustAdded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -75,13 +75,20 @@ export default function StorefrontPage() {
       : [...storedCart, { ...product, quantity: 1, storeId: id, size: selectedSize }];
 
     localStorage.setItem('swiftflow_cart', JSON.stringify(updatedCart));
-    setShowGoToCart(true);
+    setJustAdded(true);
+
+    setTimeout(() => setJustAdded(false), 3000); // Hide Go To Cart after 3s
   };
 
   const bg = storeInfo?.primaryColor || '#3b82f6';
 
   return (
-    <div className="min-h-screen text-gray-900 bg-gradient-to-br from-[#fbc2eb] via-[#a6c1ee] to-[#fbc2eb]">
+    <div
+      className="min-h-screen text-gray-900"
+      style={{
+        background: `linear-gradient(to bottom right, ${bg}30, #ffffff)`,
+      }}
+    >
       <div className="max-w-7xl mx-auto px-6 py-10">
         <button
           onClick={() => router.back()}
@@ -90,6 +97,7 @@ export default function StorefrontPage() {
           ← Back to SwiftFlow
         </button>
 
+        {/* Store Header */}
         <div className="rounded-2xl border border-gray-300 p-6 mb-10 flex flex-col md:flex-row items-center md:items-start gap-6 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.05)]">
           <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white bg-gray-100 shadow-inner">
             {storeInfo?.logoUrl ? (
@@ -113,6 +121,7 @@ export default function StorefrontPage() {
           </div>
         </div>
 
+        {/* Products */}
         {loading ? (
           <p className="text-blue-600">Loading products...</p>
         ) : products.length === 0 ? (
@@ -159,19 +168,27 @@ export default function StorefrontPage() {
                   >
                     ➕ Add to Cart
                   </button>
-
-                  {showGoToCart && (
-                    <button
-                      onClick={() => router.push('/swiftflow/cart')}
-                      className="mt-2 text-sm text-blue-700 underline hover:text-blue-900"
-                    >
-                      🛒 Go to My Cart
-                    </button>
-                  )}
                 </div>
               </motion.div>
             ))}
           </div>
+        )}
+
+        {/* Go To Cart CTA */}
+        {justAdded && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="fixed bottom-6 right-6 bg-white border border-blue-200 shadow-xl rounded-xl px-4 py-3"
+          >
+            <p className="text-sm text-blue-800 mb-1 font-medium">🎉 Item added to cart!</p>
+            <button
+              onClick={() => router.push('/swiftflow/cart')}
+              className="text-sm text-blue-700 underline hover:text-blue-900"
+            >
+              🛒 Go to My Cart
+            </button>
+          </motion.div>
         )}
       </div>
     </div>

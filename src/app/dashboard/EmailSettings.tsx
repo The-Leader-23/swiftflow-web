@@ -6,20 +6,26 @@ import { getEmailSettings, updateEmailSettings } from '@/lib/emailSettings';
 export default function EmailSettings({ userId }: { userId: string }) {
   const [enabled, setEnabled] = useState(false);
   const [recipient, setRecipient] = useState('');
+  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'off'>('daily');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getEmailSettings(userId).then((settings) => {
       if (settings) {
-        setEnabled(settings.enabled);
-        setRecipient(settings.recipient);
+        setEnabled(settings.enabled ?? false);
+        setRecipient(settings.recipient ?? '');
+        setFrequency(settings.frequency ?? 'daily');
       }
       setLoading(false);
     });
   }, [userId]);
 
   const saveSettings = async () => {
-    await updateEmailSettings(userId, { enabled, recipient });
+    await updateEmailSettings(userId, {
+      enabled,
+      recipient,
+      frequency,
+    });
     alert('✅ Email settings saved!');
   };
 
@@ -35,7 +41,7 @@ export default function EmailSettings({ userId }: { userId: string }) {
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
         />
-        <span>Enable weekly email reports</span>
+        <span>Enable Email Reports</span>
       </label>
 
       <input
@@ -43,8 +49,21 @@ export default function EmailSettings({ userId }: { userId: string }) {
         value={recipient}
         onChange={(e) => setRecipient(e.target.value)}
         placeholder="Enter recipient email"
-        className="w-full p-2 border rounded"
+        className="w-full p-2 border rounded text-black"
       />
+
+      <div>
+        <label className="font-medium block mb-1">Report Frequency</label>
+        <select
+          value={frequency}
+          onChange={(e) => setFrequency(e.target.value as any)}
+          className="w-full p-2 border rounded text-black"
+        >
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
 
       <button
         onClick={saveSettings}

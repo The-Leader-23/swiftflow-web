@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import {
   collection,
   onSnapshot,
@@ -11,6 +11,7 @@ import {
   updateDoc,
   Timestamp,
 } from 'firebase/firestore';
+import { useAuth } from '@/app/context/AuthContext';
 
 interface Product {
   id: string;
@@ -28,47 +29,68 @@ interface Order {
 }
 
 export default function OrdersPage() {
+  const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Product[];
-      setProducts(data);
-    });
-    return () => unsub();
-  }, []);
+    if (!user) return;
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'orders'), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Order[];
-      setOrders(data);
-    });
-    return () => unsub();
-  }, []);
+    const unsubProducts = onSnapshot(
+      collection(db, 'users', user.uid, 'products'),
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Product[];
+        setProducts(data);
+      }
+    );
+
+    const unsubOrders = onSnapshot(
+      collection(db, 'users', user.uid, 'orders'),
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Order[];
+        setOrders(data);
+      }
+    );
+
+    return () => {
+      unsubProducts();
+      unsubOrders();
+    };
+  }, [user]);
 
   const placeOrder = async () => {
-    if (!selectedId || quantity < 1) return alert('Select a product and valid quantity');
+    if (!user || !selectedId || quantity < 1) {
+      alert('Select a product and valid quantity');
+      return;
+    }
 
-    const productRef = doc(db, 'products', selectedId);
+    const productRef = doc(db, 'users', user.uid, 'products', selectedId);
     const productSnap = await getDoc(productRef);
-    if (!productSnap.exists()) return alert('Product not found');
+
+    if (!productSnap.exists()) {
+      alert('Product not found');
+      return;
+    }
 
     const product = productSnap.data() as Product;
 
-    if (product.stock < quantity) return alert('Not enough stock');
+    if (product.stock < quantity) {
+      alert('Not enough stock');
+      return;
+    }
 
     const total = product.price * quantity;
 
-    await addDoc(collection(db, 'orders'), {
+    // Add order
+    await addDoc(collection(db, 'users', user.uid, 'orders'), {
       productId: selectedId,
       productName: product.name,
       quantity,
@@ -76,13 +98,15 @@ export default function OrdersPage() {
       timestamp: Timestamp.now(),
     });
 
-    await addDoc(collection(db, 'finance'), {
+    // Add finance entry
+    await addDoc(collection(db, 'users', user.uid, 'finance'), {
       type: 'income',
       source: 'product sale',
       amount: total,
       timestamp: Timestamp.now(),
     });
 
+    // Update product stock
     await updateDoc(productRef, {
       stock: product.stock - quantity,
     });
@@ -137,5 +161,6 @@ export default function OrdersPage() {
     </main>
   );
 }
+
 
 

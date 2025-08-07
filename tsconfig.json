@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
+    "allowJs": true, // ✅ You can keep this if needed, but safe to disable if all TS
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -30,7 +30,13 @@
   ],
   "exclude": [
     "node_modules",
+    ".next",
+    "dist",
     "functions",
-    "functions/**"
+    "functions/**",
+    "**/*.js",           // ⛔️ Exclude all JS to avoid js/ts conflicts (like firebase.js)
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ]
 }
+

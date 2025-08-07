@@ -1,5 +1,5 @@
 'use client';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import { addDoc, collection } from 'firebase/firestore';
 
 export default function TestFirestore() {

@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import {
   collection,
   getDocs,
@@ -19,10 +19,13 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 
-export default function SalesChart() {
+// ✅ Accept userId as prop
+export default function SalesChart({ userId }: { userId: string }) {
   const [data, setData] = useState<any[]>([]);
 
   useEffect(() => {
+    if (!userId) return;
+
     const today = new Date();
     const start = new Date();
     start.setDate(today.getDate() - 6); // Last 7 days
@@ -30,7 +33,7 @@ export default function SalesChart() {
 
     const loadData = async () => {
       const q = query(
-        collection(db, 'orders'),
+        collection(db, 'users', userId, 'orders'),
         where('timestamp', '>=', Timestamp.fromDate(start))
       );
       const snap = await getDocs(q);
@@ -60,7 +63,7 @@ export default function SalesChart() {
     };
 
     loadData();
-  }, []);
+  }, [userId]);
 
   return (
     <div className="p-6 bg-white border rounded shadow mb-6">
@@ -77,3 +80,4 @@ export default function SalesChart() {
     </div>
   );
 }
+

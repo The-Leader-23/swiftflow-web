@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
+import { db } from '@/lib/firebase.client';
 import {
   collection,
   query,
@@ -10,6 +10,7 @@ import {
   where,
   getDocs,
 } from 'firebase/firestore';
+import { useAuth } from '@/app/context/AuthContext';
 import SalesChart from '../dashboard/charts';
 
 interface ProductSales {
@@ -17,11 +18,14 @@ interface ProductSales {
 }
 
 export default function InsightsPage() {
+  const { user } = useAuth(); // ✅ pulled from AuthContext
   const [topProduct, setTopProduct] = useState('');
   const [productSales, setProductSales] = useState<ProductSales>({});
   const [reorderList, setReorderList] = useState<string[]>([]);
 
   useEffect(() => {
+    if (!user) return;
+
     const today = new Date();
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - 7);
@@ -30,7 +34,7 @@ export default function InsightsPage() {
 
     const getWeeklySales = async () => {
       const q = query(
-        collection(db, 'orders'),
+        collection(db, 'users', user.uid, 'orders'),
         where('timestamp', '>=', weekStart)
       );
       const snap = await getDocs(q);
@@ -50,7 +54,7 @@ export default function InsightsPage() {
     };
 
     const getLowStock = () => {
-      const unsub = onSnapshot(collection(db, 'products'), (snap) => {
+      const unsub = onSnapshot(collection(db, 'users', user.uid, 'products'), (snap) => {
         const low = snap.docs
           .filter((doc) => (doc.data().stock || 0) <= 3)
           .map((doc) => doc.data().name);
@@ -64,13 +68,14 @@ export default function InsightsPage() {
     const unsubStock = getLowStock();
 
     return () => unsubStock();
-  }, []);
+  }, [user]);
 
   return (
     <main className="p-6 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">📈 Swift Insights</h1>
 
-      <SalesChart />
+      {/* ✅ Pass userId only when available */}
+      {user && <SalesChart userId={user.uid} />}
 
       <section className="mb-6">
         <h2 className="text-lg font-semibold mb-2">🔥 Top Product This Week</h2>
@@ -111,6 +116,7 @@ export default function InsightsPage() {
     </main>
   );
 }
+
 
 
 

@@ -1,5 +1,5 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from './firebase.client'; // ✅ this MUST be from /lib/firebase
+import { db } from './firebaseAdmin'; // ✅ correct: this is admin.firestore()
+import * as functions from 'firebase-functions';
 
 type EmailSettings = {
   enabled: boolean;
@@ -11,16 +11,19 @@ export async function updateEmailSettings(
   userId: string,
   settings: EmailSettings
 ) {
-  await setDoc(doc(db, 'users', userId), {
-    emailSettings: settings,
-  }, { merge: true });
+  await db.collection('users').doc(userId).set(
+    {
+      emailSettings: settings,
+    },
+    { merge: true }
+  );
 }
 
 export async function getEmailSettings(
   userId: string
 ): Promise<EmailSettings | null> {
-  const snap = await getDoc(doc(db, 'users', userId));
-  if (!snap.exists()) return null;
+  const snap = await db.collection('users').doc(userId).get();
+  if (!snap.exists) return null;
 
   const settings = snap.data()?.emailSettings || {};
   return {
@@ -29,6 +32,3 @@ export async function getEmailSettings(
     frequency: settings.frequency ?? 'daily',
   };
 }
-
-
-

@@ -1,6 +1,6 @@
 // src/lib/uploadImage.ts
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { storage } from './firebase';
+import { storage } from './firebase.client';
 
 export const uploadImage = async (file: File, userId: string): Promise<string> => {
   if (!file || !userId) throw new Error('Missing file or userId');
