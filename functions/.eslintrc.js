@@ -1,39 +1,40 @@
 module.exports = {
   root: true,
-  env: {
-    es6: true,
-    node: true,
-  },
-  extends: [
-    "eslint:recommended",
-    "plugin:import/errors",
-    "plugin:import/warnings",
-    "plugin:import/typescript",
-    "google",
-    "plugin:@typescript-eslint/recommended",
-  ],
-  parser: "@typescript-eslint/parser",
+  env: { node: true, es2020: true },
+  parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: ["tsconfig.json", "tsconfig.dev.json"],
-    sourceType: "module",
+    ecmaVersion: 2020,
+    sourceType: 'module',
+    // keep it simple; don't require a tsconfig project for lint
+    project: null,
   },
-  ignorePatterns: [
-    "/lib/**/*", // Ignore built files.
-    "/generated/**/*", // Ignore generated files.
-  ],
-  plugins: [
-    "@typescript-eslint",
-    "import",
+  plugins: ['@typescript-eslint', 'import'],
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    // drop "google" so it doesn't force double quotes
+    // 'plugin:import/errors', 'plugin:import/warnings', 'plugin:import/typescript' are optional
   ],
   rules: {
-    "quotes": ["error", "double"],
-    "indent": ["error", 2],
-    "import/no-unresolved": 0,
-    "require-jsdoc": "off", // ✅ Disable annoying JSDoc warnings
-    "max-len": "off", // ✅ Allow long lines for now
+    // ✔ allow single quotes (stop "Strings must use doublequote")
+    quotes: ['warn', 'single', { avoidEscape: true, allowTemplateLiterals: true }],
 
+    // calm unused vars; allow underscore to ignore
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
 
-    "object-curly-spacing": ["error", "always"], // Optional: style fix
+    // relax formatting nits
+    'no-multiple-empty-lines': ['warn', { max: 2 }],
+    'max-len': 'off',
+    'require-jsdoc': 'off',
+
+    // import resolver noise off
+    'import/no-unresolved': 'off',
   },
+  ignorePatterns: [
+    'lib/**',          // compiled output
+    'generated/**',
+    '**/*.js',         // if you only lint TS
+  ],
 };
+
 

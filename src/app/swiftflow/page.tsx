@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase.client';
-import {
-  getDocs,
-  collection,
-  query,
-} from 'firebase/firestore';
+import { getDocs, collection, query } from 'firebase/firestore';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/context/AuthContext';
@@ -19,6 +15,15 @@ interface Business {
   bio: string;
   logoUrl?: string;
   primaryColor?: string;
+}
+
+// 🎲 Unbiased Fisher–Yates shuffle
+function shuffleArray<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 export default function SwiftFlowHome() {
@@ -37,7 +42,7 @@ export default function SwiftFlowHome() {
 
       for (const docSnap of snap.docs) {
         const userId = docSnap.id;
-        const userData = docSnap.data();
+        const userData = docSnap.data() as any;
 
         if (userData.businessName) {
           temp.push({
@@ -51,6 +56,8 @@ export default function SwiftFlowHome() {
         }
       }
 
+      // 🔀 Randomize order on every load/refresh
+      shuffleArray(temp);
       setBusinesses(temp);
     };
 
@@ -121,7 +128,6 @@ function StoreCard({ biz }: { biz: Business }) {
     </motion.div>
   );
 }
-
 
 
 

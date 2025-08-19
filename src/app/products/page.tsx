@@ -1,281 +1,446 @@
+// app/products/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase.client';
+import { useEffect, useMemo, useState, ChangeEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
+import { useAuth } from '@/app/context/AuthContext';
+import { db, storage } from '@/lib/firebase.client';
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
+  serverTimestamp,
   setDoc,
   updateDoc,
-  Timestamp,
 } from 'firebase/firestore';
-import { useAuth } from '@/app/context/AuthContext';
-import toast from 'react-hot-toast';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-interface Product {
+type TabKey = 'products' | 'orders';
+
+type Product = {
   id: string;
+  productId: string;
   name: string;
   price: number;
   stock: number;
-  category: string;
-  createdAt?: Timestamp;
-}
+  category?: string;
+  imageUrl?: string;
+  isVisible?: boolean;
+  createdAt?: any;
+};
 
-interface Order {
+type Order = {
   id: string;
   customerName: string;
-  customerPhone: string;
+  phone?: string;
   total: number;
-  createdAt?: Timestamp;
-  proofUrl?: string;
   status?: string;
-}
+  proofUrl?: string;
+  createdAt?: any;
+};
 
-export default function ProductsPage() {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'products' | 'orders' | 'bank'>('products');
+const gradientBox =
+  'rounded-2xl p-6 md:p-8 shadow-xl bg-gradient-to-br from-[#2d5bff] via-[#6a5ae0] to-[#a855f7] text-white';
+const glassCard =
+  'rounded-xl bg-white/10 backdrop-blur-md border border-white/15';
+
+export default function ProductsManagerPage() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
+  const [active, setActive] = useState<TabKey>('products');
+
+  // PRODUCTS
   const [products, setProducts] = useState<Product[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [bankDetails, setBankDetails] = useState('');
-  const [form, setForm] = useState({
+  const [pLoading, setPLoading] = useState(true);
+  const [newProduct, setNewProduct] = useState({
     name: '',
     price: '',
     stock: '',
     category: '',
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // ORDERS
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [oLoading, setOLoading] = useState(true);
+
+  const uid = user?.uid;
 
   useEffect(() => {
-    if (!user) return;
+    if (!authLoading && !uid) router.push('/swiftflow');
+  }, [authLoading, uid, router]);
 
-    const unsub = onSnapshot(collection(db, 'users', user.uid, 'products'), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        ...(doc.data() as Product),
-        id: doc.id,
-      }));
-      setProducts(data);
+  const productsCol = useMemo(
+    () => (uid ? collection(db, 'users', uid, 'products') : null),
+    [uid]
+  );
+  const ordersCol = useMemo(
+    () => (uid ? collection(db, 'users', uid, 'orders') : null),
+    [uid]
+  );
+
+  // Load products
+  useEffect(() => {
+    if (!productsCol) return;
+    const unsub = onSnapshot(productsCol, (snap) => {
+      const list: Product[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as any;
+        list.push({
+          id: d.id,
+          productId: data.productId ?? d.id,
+          name: data.name,
+          price: Number(data.price) || 0,
+          stock: Number(data.stock) || 0,
+          category: data.category ?? '',
+          imageUrl: data.imageUrl ?? '',
+          isVisible: data.isVisible ?? true,
+          createdAt: data.createdAt,
+        });
+      });
+      list.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+      setProducts(list);
+      setPLoading(false);
     });
-
-    const loadUser = async () => {
-      const ref = doc(db, 'users', user.uid);
-      const snap = await getDoc(ref);
-      if (snap.exists() && snap.data().bankDetails) {
-        setBankDetails(snap.data().bankDetails);
-      }
-
-      const ordersSnap = await getDocs(collection(db, 'users', user.uid, 'orders'));
-      const allOrders = ordersSnap.docs.map((doc) => ({
-        ...(doc.data() as Order),
-        id: doc.id,
-      }));
-      setOrders(allOrders);
-    };
-
-    loadUser();
     return () => unsub();
-  }, [user]);
+  }, [productsCol]);
 
-  const saveBankDetails = async () => {
-    if (!user) return;
-    try {
-      await updateDoc(doc(db, 'users', user.uid), { bankDetails });
-      await updateDoc(doc(db, 'public_users', user.uid), { bankDetails });
-      toast.success('Bank details saved!');
-    } catch (err) {
-      toast.error('Failed to save bank details.');
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = async () => {
-    if (!user) return;
-    const { name, price, stock, category } = form;
-    if (!name || !price || !stock || !category) return alert('Fill in all fields!');
-
-    try {
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'products'), {
-        name,
-        price: parseFloat(price),
-        stock: parseInt(stock),
-        category,
-        createdAt: Timestamp.now(),
+  // Load orders
+  useEffect(() => {
+    if (!ordersCol) return;
+    const unsub = onSnapshot(ordersCol, (snap) => {
+      const list: Order[] = [];
+      snap.forEach((d) => {
+        const data = d.data() as any;
+        list.push({
+          id: d.id,
+          customerName: data.customerName ?? '',
+          phone: data.phone ?? '',
+          total: Number(data.total) || Number(data.totalPrice || 0),
+          status: data.status,
+          proofUrl: data.proofUrl ?? '',
+          createdAt: data.createdAt || data.timestamp,
+        });
       });
+      list.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+      setOrders(list);
+      setOLoading(false);
+    });
+    return () => unsub();
+  }, [ordersCol]);
 
-      // Sync to public_products
-      await setDoc(doc(db, 'public_products', docRef.id), {
-        name,
-        price: parseFloat(price),
-        stock: parseInt(stock),
-        category,
-        ownerId: user.uid,
+  // Actions: PRODUCTS
+  const handlePChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setNewProduct((s) => ({ ...s, [name]: value }));
+  };
+
+  const addProduct = async () => {
+    if (!productsCol || !uid) return;
+    if (!newProduct.name || !newProduct.price || !newProduct.stock) {
+      toast.error('Please fill name, price and stock');
+      return;
+    }
+
+    setUploading(true);
+    let imageUrl = '';
+
+    if (imageFile) {
+      try {
+        const storageRef = ref(storage, `products/${uid}/${Date.now()}_${imageFile.name}`);
+        await uploadBytes(storageRef, imageFile);
+        imageUrl = await getDownloadURL(storageRef);
+      } catch (err) {
+        console.error(err);
+        toast.error('Image upload failed. Try a smaller JPG/PNG.');
+        setUploading(false);
+        return;
+      }
+    }
+
+    try {
+      // private
+      const privRef = await addDoc(productsCol, {
+        name: newProduct.name.trim(),
+        price: Number(newProduct.price),
+        stock: Number(newProduct.stock),
+        category: newProduct.category.trim(),
+        imageUrl,
         isVisible: true,
-        createdAt: Timestamp.now(),
+        ownerId: uid,
+        createdAt: serverTimestamp(),
       });
 
-      setForm({ name: '', price: '', stock: '', category: '' });
-      toast.success('Product added!');
-    } catch (err) {
+      // write productId + mirror to public
+      await setDoc(doc(db, 'users', uid, 'products', privRef.id), { productId: privRef.id }, { merge: true });
+
+      await setDoc(doc(db, 'public_products', privRef.id), {
+        productId: privRef.id,
+        ownerId: uid,
+        name: newProduct.name.trim(),
+        price: Number(newProduct.price),
+        stock: Number(newProduct.stock),
+        category: newProduct.category.trim(),
+        imageUrl,
+        isVisible: true,
+        createdAt: serverTimestamp(),
+      });
+
+      setNewProduct({ name: '', price: '', stock: '', category: '' });
+      setImageFile(null);
+      toast.success('Product added');
+    } catch (e) {
+      console.error(e);
       toast.error('Failed to add product');
+    } finally {
+      setUploading(false);
     }
   };
+
+  const updateStock = async (id: string, delta: number) => {
+    if (!uid) return;
+    try {
+      const refDoc = doc(db, 'users', uid, 'products', id);
+      const snap = await getDoc(refDoc);
+      const cur = Number(snap.data()?.stock ?? 0);
+      const next = Math.max(0, cur + delta);
+
+      await updateDoc(refDoc, { stock: next });
+
+      const productId = (snap.data() as any)?.productId || id;
+      await updateDoc(doc(db, 'public_products', productId), {
+        stock: next,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not update stock');
+    }
+  };
+
+  const removeProduct = async (id: string) => {
+    if (!uid) return;
+    try {
+      const privSnap = await getDoc(doc(db, 'users', uid, 'products', id));
+      const productId = (privSnap.data() as any)?.productId || id;
+
+      await deleteDoc(doc(db, 'users', uid, 'products', id));
+      await deleteDoc(doc(db, 'public_products', productId));
+      toast.success('Removed');
+    } catch (e) {
+      console.error(e);
+      toast.error('Delete failed');
+    }
+  };
+
+  // Actions: ORDERS
+  const markPaid = async (id: string, paid: boolean) => {
+    if (!uid) return;
+    try {
+      await updateDoc(doc(db, 'users', uid, 'orders', id), {
+        status: paid ? 'Paid' : 'Waiting for Payment',
+      });
+      toast.success(paid ? 'Marked as Paid' : 'Marked as Waiting');
+    } catch (e) {
+      console.error(e);
+      toast.error('Update failed');
+    }
+  };
+
+  const normalizeStatus = (s?: string) => {
+    if (!s) return '—';
+    if (s.toLowerCase() === 'paid') return 'Paid';
+    if (s.toLowerCase().startsWith('waiting')) return 'Waiting for Payment';
+    return s;
+  };
+  const pillClass = (s?: string) =>
+    normalizeStatus(s) === 'Paid'
+      ? 'bg-emerald-500/90 text-white'
+      : 'bg-yellow-400/90 text-black';
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-10">
-      <h1 className="text-3xl font-bold mb-4">Entrepreneur Dashboard</h1>
-
-      <div className="flex gap-4 mb-6">
-        {['products', 'orders', 'bank'].map((tab) => (
-          <button
-            key={tab}
-            className={`tab-button ${activeTab === tab ? 'font-bold underline' : ''}`}
-            onClick={() => setActiveTab(tab as any)}
-          >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'products' && (
-        <section>
-          <h2 className="text-2xl font-semibold mb-3">🛒 Add Product</h2>
-          <div className="grid gap-4 mb-6">
-            {['name', 'price', 'stock', 'category'].map((field) => (
-              <input
-                key={field}
-                name={field}
-                placeholder={field.toUpperCase()}
-                value={(form as any)[field]}
-                onChange={handleChange}
-                className="border rounded p-2"
-              />
-            ))}
+    <div className="min-h-screen w-full px-4 md:px-8 py-8 bg-gradient-to-br from-pink-200 via-blue-200 to-pink-200">
+      <Toaster />
+      <div className={`${gradientBox} mx-auto max-w-6xl`}>
+        {/* Header: back button + tabs */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
             <button
-              onClick={handleSubmit}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              onClick={() => router.push('/swiftflow/dashboard')}
+              className="px-3 py-2 rounded-md border border-white/30 bg-white/10 hover:bg-white/20"
             >
-              Add Product
+              ← Back to Entrepreneur Dashboard
             </button>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-semibold">Manage Stock & Orders</h1>
+              <p className="text-white/80 mt-1">Keep everything consistent inside one clean gradient container.</p>
+            </div>
           </div>
 
-          <h2 className="text-xl font-semibold mb-2">📦 All Products</h2>
-          <ul className="space-y-2">
-            {products.map((p) => (
-              <li key={p.id} className="border p-3 rounded shadow-sm">
-                <strong>{p.name}</strong> – R{p.price} – Stock: {p.stock} – {p.category}
-              </li>
+          <div className="flex gap-2">
+            {(['products', 'orders'] as TabKey[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => setActive(k)}
+                className={`px-4 py-2 rounded-full border transition ${
+                  active === k
+                    ? 'bg-white text-[#2d2d2d] font-semibold border-white'
+                    : 'bg-white/10 text-white hover:bg-white/20 border-white/20'
+                }`}
+              >
+                {k === 'products' ? 'Products' : 'Orders'}
+              </button>
             ))}
-          </ul>
-        </section>
-      )}
+          </div>
+        </div>
 
-      {activeTab === 'orders' && (
-        <section>
-          <h2 className="text-2xl font-semibold mb-3">📄 Orders</h2>
-          {orders.length === 0 ? (
-            <p>No orders yet.</p>
-          ) : (
-            <ul className="space-y-4">
-              {orders
-                .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0))
-                .map((o) => (
-                  <li key={o.id} className="border p-4 rounded-xl shadow bg-white/90">
-                    <div className="flex justify-between items-center mb-1">
-                      <h3 className="text-lg font-bold">{o.customerName}</h3>
-                      {o.status === 'paid' ? (
-                        <span className="bg-green-200 text-green-800 text-xs font-bold px-2 py-1 rounded-full">
-                          PAID
-                        </span>
-                      ) : o.proofUrl ? (
-                        <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2 py-1 rounded-full">
-                          🟢 New Proof Uploaded
-                        </span>
-                      ) : (
-                        <span className="bg-gray-200 text-gray-700 text-xs font-medium px-2 py-1 rounded-full">
-                          Pending
-                        </span>
-                      )}
-                    </div>
+        {/* Body */}
+        <motion.div
+          key={active}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="space-y-6"
+        >
+          {/* PRODUCTS TAB */}
+          {active === 'products' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Add Product */}
+              <div className={`${glassCard} p-5 lg:col-span-1`}>
+                <h2 className="text-lg font-semibold mb-4">Add Product</h2>
+                <div className="grid grid-cols-1 gap-3">
+                  <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Name" name="name" value={newProduct.name} onChange={handlePChange} />
+                  <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Price" name="price" type="number" min="0" value={newProduct.price} onChange={handlePChange} />
+                  <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Stock" name="stock" type="number" min="0" value={newProduct.stock} onChange={handlePChange} />
+                  <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Category (optional)" name="category" value={newProduct.category} onChange={handlePChange} />
+                  <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" />
+                  <button onClick={addProduct} disabled={uploading} className="mt-2 rounded-lg bg-white text-[#2d2d2d] font-semibold py-2 disabled:opacity-70">
+                    {uploading ? 'Uploading…' : 'Add'}
+                  </button>
+                </div>
+              </div>
 
-                    <p className="text-sm text-gray-700">📞 {o.customerPhone}</p>
-                    <p className="text-sm text-gray-700">💰 Total: R{o.total}</p>
-                    <p className="text-sm text-gray-600">
-                      🗓️ {o.createdAt?.toDate().toLocaleString()}
-                    </p>
+              {/* List */}
+              <div className={`${glassCard} p-5 lg:col-span-2`}>
+                <h2 className="text-lg font-semibold mb-4">All Products</h2>
 
-                    <div className="mt-3">
-                      {o.proofUrl ? (
-                        <>
-                          <p className="text-sm font-medium text-gray-800 mb-1">
-                            📸 Proof of Payment:
-                          </p>
-                          <img
-                            src={o.proofUrl}
-                            alt="Payment Proof"
-                            className="w-full max-w-xs rounded shadow border"
-                          />
-                        </>
-                      ) : (
-                        <p className="text-sm text-red-600 font-medium">
-                          ❌ No payment proof uploaded yet.
-                        </p>
-                      )}
-                    </div>
+                {pLoading ? (
+                  <p className="text-white/80">Loading…</p>
+                ) : products.length === 0 ? (
+                  <p className="text-white/80">No products yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {products.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 border border-white/10 p-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {p.imageUrl ? (
+                            <img src={p.imageUrl} alt={p.name} className="h-12 w-12 rounded-md object-cover border border-white/20" />
+                          ) : (
+                            <div className="h-12 w-12 rounded-md bg-white/10 border border-white/20 grid place-items-center text-xs text-white/70">No img</div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{p.name}</div>
+                            <div className="text-sm text-white/80">
+                              R{p.price.toFixed(2)} • Stock: {p.stock}
+                              {p.category ? ` • ${p.category}` : ''}
+                            </div>
+                            <div className="text-xs text-white/60 truncate">ID: {p.productId || p.id}</div>
+                          </div>
+                        </div>
 
-                    {o.status !== 'paid' && o.proofUrl && (
-                      <button
-                        onClick={async () => {
-                          try {
-                            await updateDoc(doc(db, 'users', user!.uid, 'orders', o.id), {
-                              status: 'paid',
-                            });
-                            toast.success(`✅ Marked as paid!`);
-                            setOrders((prev) =>
-                              prev.map((ord) =>
-                                ord.id === o.id ? { ...ord, status: 'paid' } : ord
-                              )
-                            );
-                          } catch (err) {
-                            toast.error('❌ Failed to mark as paid');
-                          }
-                        }}
-                        className="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
-                      >
-                        ✅ Mark as Paid
-                      </button>
-                    )}
-                  </li>
-                ))}
-            </ul>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => updateStock(p.id, 1)} className="px-3 py-1 rounded-md bg-white text-[#2d2d2d] font-medium">
+                            +1
+                          </button>
+                          <button onClick={() => updateStock(p.id, -1)} className="px-3 py-1 rounded-md bg-white/20 border border-white/30">
+                            −1
+                          </button>
+                          <button onClick={() => removeProduct(p.id)} className="px-3 py-1 rounded-md bg-red-500/90 hover:bg-red-500 text-white">
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
-        </section>
-      )}
 
-      {activeTab === 'bank' && (
-        <section>
-          <h2 className="text-2xl font-semibold mb-3">🏦 Bank Info</h2>
-          <textarea
-            value={bankDetails}
-            onChange={(e) => setBankDetails(e.target.value)}
-            className="w-full border rounded p-2 h-28"
-            placeholder="Enter your banking information here..."
-          />
-          <button
-            onClick={saveBankDetails}
-            className="bg-green-600 text-white px-4 py-2 mt-2 rounded hover:bg-green-700"
-          >
-            Save Bank Info
-          </button>
-        </section>
-      )}
+          {/* ORDERS TAB */}
+          {active === 'orders' && (
+            <div className={`${glassCard} p-5`}>
+              <h2 className="text-lg font-semibold mb-4">Orders</h2>
+
+              {oLoading ? (
+                <p className="text-white/80">Loading…</p>
+              ) : orders.length === 0 ? (
+                <p className="text-white/80">No orders yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {orders.map((o) => {
+                    const isPaid = normalizeStatus(o.status) === 'Paid';
+                    return (
+                      <div key={o.id} className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-lg bg-white/5 border border-white/10 p-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {o.proofUrl ? (
+                            <a href={o.proofUrl} target="_blank" rel="noreferrer">
+                              <img src={o.proofUrl} alt="Proof" className="h-12 w-12 rounded object-cover border border-white/20" />
+                            </a>
+                          ) : (
+                            <div className="h-12 w-12 rounded bg-white/10 border border-white/20 grid place-items-center text-xs text-white/70">—</div>
+                          )}
+
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{o.customerName || 'Customer'}</div>
+                            <div className="text-sm text-white/80">
+                              Total: R{Number(o.total).toFixed(2)} • Status:{' '}
+                              <span className={`px-2 py-0.5 rounded ${pillClass(o.status)}`}>{normalizeStatus(o.status)}</span>
+                              {o.proofUrl ? ' • Proof uploaded' : ''}
+                            </div>
+                            {o.proofUrl && (
+                              <a href={o.proofUrl} target="_blank" rel="noreferrer" className="text-sm underline text-white">
+                                View proof
+                              </a>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {!isPaid ? (
+                            <button onClick={() => markPaid(o.id, true)} className="px-3 py-1 rounded-md bg-white text-[#2d2d2d] font-medium">
+                              Mark Paid
+                            </button>
+                          ) : (
+                            <button onClick={() => markPaid(o.id, false)} className="px-3 py-1 rounded-md bg-white/20 border border-white/30">
+                              Mark Waiting
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </motion.div>
+      </div>
     </div>
   );
 }
+
+
+
+
+
 
 
 

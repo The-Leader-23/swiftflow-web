@@ -1,17 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase.client';
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  doc,
-  getDoc,
-} from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { motion } from 'framer-motion';
+import toast, { Toaster } from 'react-hot-toast';
+
+type PublicProduct = {
+  id: string;
+  name: string;
+  price: number | string;
+  stock?: number;
+  imageUrl?: string;
+  ownerId: string;
+  isVisible?: boolean;
+};
 
 export default function StorefrontPage() {
   const router = useRouter();
@@ -19,103 +23,129 @@ export default function StorefrontPage() {
   const id = params?.id as string;
 
   const [storeInfo, setStoreInfo] = useState<any>(null);
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<PublicProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedSize, setSelectedSize] = useState('');
-  const [justAdded, setJustAdded] = useState(false);
+  const [selectedSizeFor, setSelectedSizeFor] = useState<Record<string, string>>({});
+  const [cartCount, setCartCount] = useState<number>(0);
 
   useEffect(() => {
     if (!id) return;
-
-    const fetchData = async () => {
+    (async () => {
       try {
         const userRef = doc(db, 'public_users', id);
         const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          setStoreInfo(userSnap.data());
-        }
+        if (userSnap.exists()) setStoreInfo(userSnap.data());
 
-        const productQuery = query(
-          collection(db, 'public_products'),
-          where('ownerId', '==', id),
-          where('isVisible', '==', true)
-        );
+        const productQuery = query(collection(db, 'public_products'), where('ownerId', '==', id));
         const productSnap = await getDocs(productQuery);
-        const items = productSnap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-        setProducts(items);
-      } catch (error) {
-        console.error('Error loading store:', error);
+        const items = productSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any[];
+        setProducts(items.filter((p) => p.isVisible !== false));
+      } catch (e) {
+        console.error(e);
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchData();
+    })();
   }, [id]);
 
-  const addToCart = (product: any) => {
-    if (!selectedSize) {
-      alert('⚠️ Please select a size before adding to cart.');
+  // persistent cart bar
+  const recomputeCartCount = () => {
+    try {
+      const cart: any[] = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
+      setCartCount(cart.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0));
+    } catch {
+      setCartCount(0);
+    }
+  };
+  useEffect(() => {
+    recomputeCartCount();
+    const onStorage = (e: StorageEvent) => e.key === 'swiftflow_cart' && recomputeCartCount();
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const addToCart = (product: PublicProduct) => {
+    const size = selectedSizeFor[product.id] || '';
+    if (!size) return toast.error('Please select a size first.');
+    if ((Number(product.stock ?? 0)) <= 0) return toast.error('⛔ Out of stock.');
+
+    const existing: any[] = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
+    const item = {
+      id: product.id,
+      productId: product.id,
+      name: product.name,
+      price: Number(product.price) || 0,
+      quantity: 1,
+      imageUrl: product.imageUrl || '',
+      size,
+      storeId: id,
+    };
+
+    if (existing.length > 0 && existing[0].storeId !== id) {
+      toast('Cart had another store. Starting a fresh cart for this store.', { icon: '🧹' });
+      localStorage.setItem('swiftflow_cart', JSON.stringify([item]));
+      recomputeCartCount();
+      toast.success('🛒 Added to cart');
       return;
     }
 
-    const storedCart = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
-    const existing = storedCart.find((item: any) => item.id === product.id && item.size === selectedSize);
-
-    const updatedCart = existing
-      ? storedCart.map((item: any) =>
-          item.id === product.id && item.size === selectedSize
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
+    const already = existing.find((it) => it.id === product.id && (it.size || '') === size);
+    const updated = already
+      ? existing.map((it) =>
+          it.id === product.id && (it.size || '') === size
+            ? { ...it, quantity: (Number(it.quantity) || 1) + 1 }
+            : it
         )
-      : [...storedCart, { ...product, quantity: 1, storeId: id, size: selectedSize }];
+      : [...existing, item];
 
-    localStorage.setItem('swiftflow_cart', JSON.stringify(updatedCart));
-    setJustAdded(true);
-
-    setTimeout(() => setJustAdded(false), 3000); // Hide Go To Cart after 3s
+    localStorage.setItem('swiftflow_cart', JSON.stringify(updated));
+    recomputeCartCount();
+    toast.success('🛒 Added to cart');
   };
 
-  const bg = storeInfo?.primaryColor || '#3b82f6';
-
   return (
-    <div
-      className="min-h-screen text-gray-900"
-      style={{
-        background: `linear-gradient(to bottom right, ${bg}30, #ffffff)`,
-      }}
-    >
-      <div className="max-w-7xl mx-auto px-6 py-10">
+    // ✅ Exact same gradient as Discover page — applied on the root so it never flashes
+    <div className="min-h-screen relative overflow-hidden text-gray-900 bg-gradient-to-br from-[#fbc2eb] via-[#a6c1ee] to-[#fbc2eb]">
+      <Toaster />
+
+      {/* Persistent Cart Bar */}
+      {cartCount > 0 && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur border-b border-white/50 shadow-sm">
+          <div className="max-w-7xl mx-auto px-6 py-2 flex items-center justify-between">
+            <p className="text-sm font-medium">
+              ✅ You have <span className="font-bold">{cartCount}</span> item{cartCount > 1 ? 's' : ''} in your cart
+            </p>
+            <button
+              onClick={() => router.push('/swiftflow/cart')}
+              className="text-sm font-semibold underline underline-offset-4 hover:no-underline"
+            >
+              🛒 Go to Cart
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={`max-w-7xl mx-auto px-6 ${cartCount > 0 ? 'pt-16' : 'pt-10'} pb-10`}>
         <button
           onClick={() => router.back()}
-          className="mb-6 text-sm text-blue-700 underline hover:text-blue-900 transition"
+          className="mb-6 text-sm text-white/90 underline hover:text-white transition"
         >
           ← Back to SwiftFlow
         </button>
 
         {/* Store Header */}
-        <div className="rounded-2xl border border-gray-300 p-6 mb-10 flex flex-col md:flex-row items-center md:items-start gap-6 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.05)]">
+        <div className="rounded-2xl p-6 mb-10 flex flex-col md:flex-row items-center md:items-start gap-6 bg-white/85 backdrop-blur border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
           <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white bg-gray-100 shadow-inner">
             {storeInfo?.logoUrl ? (
-              <img
-                src={storeInfo.logoUrl}
-                alt="Logo"
-                className="w-full h-full object-cover"
-              />
+              <img src={storeInfo.logoUrl} alt="Logo" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
-                No Logo
-              </div>
+              <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">No Logo</div>
             )}
           </div>
           <div>
             <h1 className="text-4xl font-bold mb-1">{storeInfo?.businessName}</h1>
-            <p className="text-sm text-blue-600">{storeInfo?.businessType}</p>
-            <p className="text-sm text-gray-600 mt-2 max-w-xl">
+            <p className="text-sm text-blue-700">{storeInfo?.businessType}</p>
+            <p className="text-sm text-gray-700 mt-2 max-w-xl">
               {storeInfo?.bio || 'This store has no description yet.'}
             </p>
           </div>
@@ -123,75 +153,82 @@ export default function StorefrontPage() {
 
         {/* Products */}
         {loading ? (
-          <p className="text-blue-600">Loading products...</p>
+          <p className="text-white font-medium">Loading products...</p>
         ) : products.length === 0 ? (
-          <p className="text-gray-600">No public products yet.</p>
+          <p className="text-white/90">No public products yet.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {products.map((product) => (
-              <motion.div
-                key={product.id}
-                whileHover={{ scale: 1.03 }}
-                className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
-              >
-                <div className="relative">
-                  <img
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="w-full h-64 object-contain bg-white p-4"
-                  />
-                  <div className="absolute top-2 right-2 text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
-                    🛒 Tap to add
+            {products.map((product) => {
+              const outOfStock = Number(product.stock ?? 0) <= 0;
+              const size = (selectedSizeFor as any)[product.id] || '';
+              return (
+                <motion.div
+                  key={product.id}
+                  whileHover={{ scale: 1.03 }}
+                  className="bg-white/90 backdrop-blur border border-white/70 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
+                >
+                  <div className="relative">
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="w-full h-64 object-contain bg-white p-4"
+                      />
+                    ) : (
+                      <div className="w-full h-64 bg-gray-100" />
+                    )}
+
+                    {outOfStock ? (
+                      <div className="absolute top-2 right-2 text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">
+                        Out of stock
+                      </div>
+                    ) : (
+                      <div className="absolute top-2 right-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                        🛒 Tap to add
+                      </div>
+                    )}
                   </div>
-                </div>
 
-                <div className="p-4">
-                  <h2 className="text-lg font-semibold mb-1">{product.name}</h2>
-                  <p className="text-sm text-blue-600">Price: R{product.price}</p>
-                  <p className="text-sm text-gray-600">Stock: {product.stock}</p>
+                  <div className="p-4">
+                    <h2 className="text-lg font-semibold mb-1">{product.name}</h2>
+                    <p className="text-sm text-blue-700">Price: R{Number(product.price || 0).toFixed(2)}</p>
+                    <p className="text-sm text-gray-700">
+                      Stock: {product.stock ?? 0}
+                      {Number(product.stock) > 0 && Number(product.stock) <= 5 && (
+                        <span className="ml-2 text-xs text-amber-700 font-medium">Low</span>
+                      )}
+                    </p>
 
-                  <select
-                    className="mt-2 w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                    onChange={(e) => setSelectedSize(e.target.value)}
-                    defaultValue=""
-                  >
-                    <option value="" disabled>Select Size</option>
-                    <option value="S">Small</option>
-                    <option value="M">Medium</option>
-                    <option value="L">Large</option>
-                    <option value="XL">Extra Large</option>
-                  </select>
+                    <select
+                      className="mt-2 w-full border border-gray-200 rounded px-3 py-2 text-sm bg-white"
+                      onChange={(e) => setSelectedSizeFor((m) => ({ ...m, [product.id]: e.target.value }))}
+                      value={size}
+                    >
+                      <option value="" disabled>Select Size</option>
+                      <option value="S">Small</option>
+                      <option value="M">Medium</option>
+                      <option value="L">Large</option>
+                      <option value="XL">Extra Large</option>
+                    </select>
 
-                  <button
-                    onClick={() => addToCart(product)}
-                    className="mt-3 w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-2 rounded-lg hover:from-blue-600 hover:to-purple-600 transition shadow-md"
-                  >
-                    ➕ Add to Cart
-                  </button>
-                </div>
-              </motion.div>
-            ))}
+                    <button
+                      onClick={() => addToCart(product)}
+                      disabled={outOfStock || !size}
+                      className={`mt-3 w-full text-white py-2 rounded-lg transition shadow-md ${
+                        outOfStock || !size
+                          ? 'bg-gray-300 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600'
+                      }`}
+                    >
+                      {outOfStock ? 'Unavailable' : '➕ Add to Cart'}
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
-        )}
-
-        {/* Go To Cart CTA */}
-        {justAdded && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="fixed bottom-6 right-6 bg-white border border-blue-200 shadow-xl rounded-xl px-4 py-3"
-          >
-            <p className="text-sm text-blue-800 mb-1 font-medium">🎉 Item added to cart!</p>
-            <button
-              onClick={() => router.push('/swiftflow/cart')}
-              className="text-sm text-blue-700 underline hover:text-blue-900"
-            >
-              🛒 Go to My Cart
-            </button>
-          </motion.div>
         )}
       </div>
     </div>
   );
 }
-

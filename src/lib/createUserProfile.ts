@@ -1,5 +1,6 @@
-import { db } from '@/lib/firebase.client'; // ✅ Make sure this points to client Firestore SDK
-import { doc, setDoc } from 'firebase/firestore';
+// lib/createUserProfile.ts
+import { db } from '@/lib/firebase.client'; // client SDK
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export async function createUserProfile(
   uid: string,
@@ -7,24 +8,42 @@ export async function createUserProfile(
   role: 'customer' | 'entrepreneur'
 ) {
   try {
-    // ✅ Creates user doc
-    await setDoc(doc(db, 'users', uid), {
+    // Base user doc (+ defaults for entrepreneurs)
+    const userPayload: any = {
       email,
       role,
-      createdAt: new Date(),
-      isRegistered: role === 'entrepreneur',
-    });
+      createdAt: serverTimestamp(),
+      isRegistered: role === 'entrepreneur', // keep your current behavior
+      ...(role === 'entrepreneur'
+        ? {
+            emailSettings: {
+              enabled: false,          // start OFF; they can enable in Settings
+              recipient: email,        // default to their account email
+              frequency: 'weekly' as const, // 'daily' | 'weekly'
+            },
+          }
+        : {}),
+    };
 
-    // ✅ If entrepreneur, also publish to public_users
+    // ✅ Create/merge user profile
+    await setDoc(doc(db, 'users', uid), userPayload, { merge: true });
+
+    // ✅ Publish entrepreneur to public_users (empty shell)
     if (role === 'entrepreneur') {
-      await setDoc(doc(db, 'public_users', uid), {
-        businessName: '',
-        bio: '',
-        businessType: '',
-        logoUrl: '',
-        isFeatured: false,
-        createdAt: new Date(),
-      });
+      await setDoc(
+        doc(db, 'public_users', uid),
+        {
+          businessName: '',
+          bio: '',
+          businessType: '',
+          logoUrl: '',
+          isFeatured: false,
+          ownerId: uid,
+          hasBank: false,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
     }
 
     console.log('✅ User profile created');
@@ -33,6 +52,7 @@ export async function createUserProfile(
     throw err;
   }
 }
+
 
 
 
