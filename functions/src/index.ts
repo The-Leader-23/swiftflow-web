@@ -7,12 +7,16 @@ import { logger } from 'firebase-functions';
 import { db } from './firebaseAdmin';
 import { sendSwiftReports, SENDGRID_API_KEY } from './sendSwiftReports';
 
+// ---------- Region ----------
+const REGION = 'us-east1'; // was 'us-central1'
+
+// ---------- Mirror bank details to public_users ----------
 /**
  * Mirror bank details from /users/{uid} → /public_users/{uid}
  * Supports nested structure: users/{uid}.bankDetails.{...}
  */
 export const mirrorBankToPublic = onDocumentWritten(
-  { region: 'us-central1', document: 'users/{uid}' },
+  { region: REGION, document: 'users/{uid}' },
   async (event) => {
     const uid = String(event.params.uid || '');
     const after = event.data?.after?.data();
@@ -61,13 +65,14 @@ export const mirrorBankToPublic = onDocumentWritten(
   }
 );
 
+// ---------- Proof uploaded → mark Paid + decrement stock ----------
 /**
  * When proof is uploaded (isProofUploaded flips to true) for an order:
  * 1) mark order as 'Paid'
  * 2) decrement ONLY that entrepreneur's product stock based on the order items
  */
 export const onProofUploaded = onDocumentUpdated(
-  { region: 'us-central1', document: 'users/{userId}/orders/{orderId}' },
+  { region: REGION, document: 'users/{userId}/orders/{orderId}' },
   async (event) => {
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
@@ -82,11 +87,7 @@ export const onProofUploaded = onDocumentUpdated(
     await db.runTransaction(async (tx) => {
       // 1) Mark order as paid
       const orderRef = db.doc(`users/${userId}/orders/${orderId}`);
-      tx.set(
-        orderRef,
-        { status: 'Paid', paidAt: FieldValue.serverTimestamp() },
-        { merge: true }
-      );
+      tx.set(orderRef, { status: 'Paid', paidAt: FieldValue.serverTimestamp() }, { merge: true });
 
       // 2) Decrement stock for the items in this order (this entrepreneur only)
       const items: Array<{ productId: string; quantity?: number }> = Array.isArray(after.items) ? after.items : [];
@@ -102,12 +103,11 @@ export const onProofUploaded = onDocumentUpdated(
   }
 );
 
-/**
- * DAILY Swift Report — 09:00 Africa/Johannesburg (v2 scheduler)
- */
+// ---------- Schedulers ----------
+/** DAILY Swift Report — 09:00 Africa/Johannesburg (v2 scheduler) */
 export const dailySwiftReport = onSchedule(
   {
-    region: 'us-central1',
+    region: REGION,
     schedule: 'every day 09:00',
     timeZone: 'Africa/Johannesburg',
     secrets: [SENDGRID_API_KEY],
@@ -118,12 +118,10 @@ export const dailySwiftReport = onSchedule(
   }
 );
 
-/**
- * WEEKLY Swift Report — Mondays 09:00 Africa/Johannesburg (v2 scheduler)
- */
+/** WEEKLY Swift Report — Mondays 09:00 Africa/Johannesburg (v2 scheduler) */
 export const weeklySwiftReport = onSchedule(
   {
-    region: 'us-central1',
+    region: REGION,
     schedule: 'every monday 09:00',
     timeZone: 'Africa/Johannesburg',
     secrets: [SENDGRID_API_KEY],
@@ -133,6 +131,7 @@ export const weeklySwiftReport = onSchedule(
     logger.info('✅ Weekly Swift Reports run complete');
   }
 );
+
 
 
 
