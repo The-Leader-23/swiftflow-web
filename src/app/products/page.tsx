@@ -29,7 +29,8 @@ type Product = {
   price: number;
   stock: number;
   category?: string;
-  imageUrl?: string;
+  // ⬇️ changed: support multiple images (fallback handled on read)
+  imageUrls?: string[];
   isVisible?: boolean;
   createdAt?: any;
 };
@@ -64,7 +65,8 @@ export default function ProductsManagerPage() {
     stock: '',
     category: '',
   });
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  // ⬇️ changed: allow up to 2 images
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
   // ORDERS
@@ -100,7 +102,10 @@ export default function ProductsManagerPage() {
           price: Number(data.price) || 0,
           stock: Number(data.stock) || 0,
           category: data.category ?? '',
-          imageUrl: data.imageUrl ?? '',
+          // ⬇️ changed: normalize to array, keep legacy fallback
+          imageUrls: Array.isArray(data.imageUrls)
+            ? data.imageUrls
+            : (data.imageUrl ? [data.imageUrl] : []),
           isVisible: data.isVisible ?? true,
           createdAt: data.createdAt,
         });
@@ -150,13 +155,18 @@ export default function ProductsManagerPage() {
     }
 
     setUploading(true);
-    let imageUrl = '';
+    // ⬇️ changed: upload up to 2 images and collect URLs
+    const imageUrls: string[] = [];
 
-    if (imageFile) {
+    if (imageFiles.length > 0) {
       try {
-        const storageRef = ref(storage, `products/${uid}/${Date.now()}_${imageFile.name}`);
-        await uploadBytes(storageRef, imageFile);
-        imageUrl = await getDownloadURL(storageRef);
+        const limited = imageFiles.slice(0, 2);
+        for (const f of limited) {
+          const storageRef = ref(storage, `products/${uid}/${Date.now()}_${f.name}`);
+          await uploadBytes(storageRef, f);
+          const url = await getDownloadURL(storageRef);
+          imageUrls.push(url);
+        }
       } catch (err) {
         console.error(err);
         toast.error('Image upload failed. Try a smaller JPG/PNG.');
@@ -172,7 +182,8 @@ export default function ProductsManagerPage() {
         price: Number(newProduct.price),
         stock: Number(newProduct.stock),
         category: newProduct.category.trim(),
-        imageUrl,
+        // ⬇️ changed
+        imageUrls,
         isVisible: true,
         ownerId: uid,
         createdAt: serverTimestamp(),
@@ -188,13 +199,14 @@ export default function ProductsManagerPage() {
         price: Number(newProduct.price),
         stock: Number(newProduct.stock),
         category: newProduct.category.trim(),
-        imageUrl,
+        // ⬇️ changed
+        imageUrls,
         isVisible: true,
         createdAt: serverTimestamp(),
       });
 
       setNewProduct({ name: '', price: '', stock: '', category: '' });
-      setImageFile(null);
+      setImageFiles([]);
       toast.success('Product added');
     } catch (e) {
       console.error(e);
@@ -320,7 +332,23 @@ export default function ProductsManagerPage() {
                   <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Price" name="price" type="number" min="0" value={newProduct.price} onChange={handlePChange} />
                   <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Stock" name="stock" type="number" min="0" value={newProduct.stock} onChange={handlePChange} />
                   <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Category (optional)" name="category" value={newProduct.category} onChange={handlePChange} />
-                  <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" />
+
+                  {/* ⬇️ changed: allow selecting up to 2 images + small previews */}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setImageFiles(Array.from(e.target.files || []).slice(0, 2))}
+                    className="rounded-md px-3 py-2 bg-white/90 text-black outline-none"
+                  />
+                  {imageFiles.length > 0 && (
+                    <div className="flex gap-2">
+                      {imageFiles.map((f, i) => (
+                        <img key={i} src={URL.createObjectURL(f)} className="h-12 w-12 object-cover rounded border border-white/30" />
+                      ))}
+                    </div>
+                  )}
+
                   <button onClick={addProduct} disabled={uploading} className="mt-2 rounded-lg bg-white text-[#2d2d2d] font-semibold py-2 disabled:opacity-70">
                     {uploading ? 'Uploading…' : 'Add'}
                   </button>
@@ -337,37 +365,40 @@ export default function ProductsManagerPage() {
                   <p className="text-white/80">No products yet.</p>
                 ) : (
                   <div className="space-y-3">
-                    {products.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 border border-white/10 p-4">
-                        <div className="flex items-center gap-3 min-w-0">
-                          {p.imageUrl ? (
-                            <img src={p.imageUrl} alt={p.name} className="h-12 w-12 rounded-md object-cover border border-white/20" />
-                          ) : (
-                            <div className="h-12 w-12 rounded-md bg-white/10 border border-white/20 grid place-items-center text-xs text-white/70">No img</div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="font-semibold truncate">{p.name}</div>
-                            <div className="text-sm text-white/80">
-                              R{p.price.toFixed(2)} • Stock: {p.stock}
-                              {p.category ? ` • ${p.category}` : ''}
+                    {products.map((p) => {
+                      const primaryImg = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls[0] : '';
+                      return (
+                        <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 border border-white/10 p-4">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {primaryImg ? (
+                              <img src={primaryImg} alt={p.name} className="h-12 w-12 rounded-md object-cover border border-white/20" />
+                            ) : (
+                              <div className="h-12 w-12 rounded-md bg-white/10 border border-white/20 grid place-items-center text-xs text-white/70">No img</div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-semibold truncate">{p.name}</div>
+                              <div className="text-sm text-white/80">
+                                R{p.price.toFixed(2)} • Stock: {p.stock}
+                                {p.category ? ` • ${p.category}` : ''}
+                              </div>
+                              <div className="text-xs text-white/60 truncate">ID: {p.productId || p.id}</div>
                             </div>
-                            <div className="text-xs text-white/60 truncate">ID: {p.productId || p.id}</div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => updateStock(p.id, 1)} className="px-3 py-1 rounded-md bg-white text-[#2d2d2d] font-medium">
+                              +1
+                            </button>
+                            <button onClick={() => updateStock(p.id, -1)} className="px-3 py-1 rounded-md bg-white/20 border border-white/30">
+                              −1
+                            </button>
+                            <button onClick={() => removeProduct(p.id)} className="px-3 py-1 rounded-md bg-red-500/90 hover:bg-red-500 text-white">
+                              Remove
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => updateStock(p.id, 1)} className="px-3 py-1 rounded-md bg-white text-[#2d2d2d] font-medium">
-                            +1
-                          </button>
-                          <button onClick={() => updateStock(p.id, -1)} className="px-3 py-1 rounded-md bg-white/20 border border-white/30">
-                            −1
-                          </button>
-                          <button onClick={() => removeProduct(p.id)} className="px-3 py-1 rounded-md bg-red-500/90 hover:bg-red-500 text-white">
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -436,6 +467,9 @@ export default function ProductsManagerPage() {
     </div>
   );
 }
+
+
+
 
 
 

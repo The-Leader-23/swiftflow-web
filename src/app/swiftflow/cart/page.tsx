@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast, { Toaster } from 'react-hot-toast';
 
+// ⬇️ picture-only update: allow optional imageUrls for fallback
 type CartItem = {
   id: string;
   productId?: string;
@@ -12,6 +13,7 @@ type CartItem = {
   price: number;
   quantity: number;
   imageUrl?: string;
+  imageUrls?: string[]; // <-- NEW (only for fallback)
   size?: string | null;
   storeId: string; // MUST equal seller UID
 };
@@ -25,12 +27,17 @@ export default function CartPage() {
   useEffect(() => {
     const stored: CartItem[] = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
 
-    const normalized = (stored || []).map((it) => ({
-      ...it,
-      productId: it.productId ?? it.id,
-      price: Number(it.price) || 0,
-      quantity: Number(it.quantity) || 1,
-    })) as CartItem[];
+    const normalized = (stored || []).map((it) => {
+      // ⬇️ picture-only update: if no imageUrl, use first of imageUrls
+      const fallbackImg = (it as any)?.imageUrls?.[0] || '';
+      return {
+        ...it,
+        productId: it.productId ?? it.id,
+        price: Number(it.price) || 0,
+        quantity: Number(it.quantity) || 1,
+        imageUrl: it.imageUrl || fallbackImg,
+      } as CartItem;
+    });
 
     // single-store guard (prevents bank fetch mismatch later)
     if (normalized.length > 0) {
@@ -173,5 +180,6 @@ export default function CartPage() {
     </div>
   );
 }
+
 
 

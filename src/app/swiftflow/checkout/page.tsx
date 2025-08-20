@@ -32,6 +32,7 @@ type BankDetails =
       [k: string]: any;
     };
 
+// ⬇️ picture-only update: allow optional imageUrls on items for fallback
 type CartItem = {
   id: string;
   productId?: string;
@@ -39,6 +40,7 @@ type CartItem = {
   price: number;
   quantity: number;
   imageUrl?: string;
+  imageUrls?: string[]; // <-- NEW (only for fallback)
   size?: string | null;
   storeId: string;
 };
@@ -66,12 +68,17 @@ export default function CheckoutPage() {
   useEffect(() => {
     const stored: CartItem[] = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
 
-    const normalized = (stored || []).map((it) => ({
-      ...it,
-      productId: it.productId ?? it.id,
-      price: Number(it.price) || 0,
-      quantity: Number(it.quantity) || 1,
-    })) as CartItem[];
+    const normalized = (stored || []).map((it) => {
+      // ⬇️ picture-only update: if no imageUrl, fall back to first imageUrls[0]
+      const fallbackImg = (it as any)?.imageUrls?.[0] || '';
+      return {
+        ...it,
+        productId: it.productId ?? it.id,
+        price: Number(it.price) || 0,
+        quantity: Number(it.quantity) || 1,
+        imageUrl: it.imageUrl || fallbackImg,
+      } as CartItem;
+    });
 
     if (normalized.length === 0) {
       setCart([]);
@@ -147,7 +154,6 @@ export default function CheckoutPage() {
             paymentEmail: d.paymentEmail || '',
             swiftCode: d.swiftCode || '',
           };
-          // If at least one field exists, use it
           if (
             normalized.bankName ||
             normalized.accountHolder ||
@@ -387,7 +393,7 @@ export default function CheckoutPage() {
             <h2 className="text-lg font-bold text-gray-800 mb-3">📤 Upload Payment Proof</h2>
 
             {proofUrl ? (
-              <img src={proofUrl} alt="Proof" className="w-full max-w-sm rounded shadow" />
+              <img src={proofUrl} alt="Proof" className="w/full max-w-sm rounded shadow" />
             ) : (
               <>
                 <p className="text-xs text-gray-500 mb-2">
@@ -464,6 +470,7 @@ export default function CheckoutPage() {
     </div>
   );
 }
+
 
 
 

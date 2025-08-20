@@ -12,6 +12,9 @@ type PublicProduct = {
   name: string;
   price: number | string;
   stock?: number;
+  // ✅ New multi-image support
+  imageUrls?: string[];
+  // legacy fallback if old docs still have this
   imageUrl?: string;
   ownerId: string;
   isVisible?: boolean;
@@ -28,17 +31,39 @@ export default function StorefrontPage() {
   const [selectedSizeFor, setSelectedSizeFor] = useState<Record<string, string>>({});
   const [cartCount, setCartCount] = useState<number>(0);
 
+  // track current image index per product
+  const [imgIndexFor, setImgIndexFor] = useState<Record<string, number>>({});
+
   useEffect(() => {
     if (!id) return;
     (async () => {
       try {
+        // store header
         const userRef = doc(db, 'public_users', id);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) setStoreInfo(userSnap.data());
 
+        // products for this store
         const productQuery = query(collection(db, 'public_products'), where('ownerId', '==', id));
         const productSnap = await getDocs(productQuery);
-        const items = productSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any[];
+        const items = productSnap.docs.map((d) => {
+          const data = d.data() as any;
+          // ✅ Normalize images: prefer imageUrls, else wrap legacy imageUrl
+          const imageUrls: string[] =
+            Array.isArray(data.imageUrls) && data.imageUrls.length > 0
+              ? data.imageUrls.slice(0, 2) // we only ever show up to 2
+              : (data.imageUrl ? [data.imageUrl] : []);
+          return {
+            id: d.id,
+            name: data.name,
+            price: data.price,
+            stock: data.stock,
+            imageUrls,
+            ownerId: data.ownerId,
+            isVisible: data.isVisible,
+          } as PublicProduct;
+        }) as any[];
+
         setProducts(items.filter((p) => p.isVisible !== false));
       } catch (e) {
         console.error(e);
@@ -64,10 +89,36 @@ export default function StorefrontPage() {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  const currentImg = (p: PublicProduct) => {
+    const idx = imgIndexFor[p.id] ?? 0;
+    const arr = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
+    return arr[Math.min(idx, Math.max(0, arr.length - 1))] || '';
+  };
+
+  const cycleImage = (p: PublicProduct) => {
+    const arr = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
+    if (arr.length <= 1) return;
+    setImgIndexFor((m) => {
+      const next = ((m[p.id] ?? 0) + 1) % arr.length;
+      return { ...m, [p.id]: next };
+    });
+  };
+
+  const setImageAt = (p: PublicProduct, index: number) => {
+    const arr = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
+    if (index < 0 || index >= arr.length) return;
+    setImgIndexFor((m) => ({ ...m, [p.id]: index }));
+  };
+
   const addToCart = (product: PublicProduct) => {
     const size = selectedSizeFor[product.id] || '';
     if (!size) return toast.error('Please select a size first.');
     if ((Number(product.stock ?? 0)) <= 0) return toast.error('⛔ Out of stock.');
+
+    const imageForCart =
+      (product.imageUrls && product.imageUrls[0]) ||
+      product.imageUrl ||
+      '';
 
     const existing: any[] = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
     const item = {
@@ -76,7 +127,7 @@ export default function StorefrontPage() {
       name: product.name,
       price: Number(product.price) || 0,
       quantity: 1,
-      imageUrl: product.imageUrl || '',
+      imageUrl: imageForCart,
       size,
       storeId: id,
     };
@@ -104,7 +155,7 @@ export default function StorefrontPage() {
   };
 
   return (
-    // ✅ Exact same gradient as Discover page — applied on the root so it never flashes
+    // ✅ Same soft gradient background, applied to root
     <div className="min-h-screen relative overflow-hidden text-gray-900 bg-gradient-to-br from-[#fbc2eb] via-[#a6c1ee] to-[#fbc2eb]">
       <Toaster />
 
@@ -161,6 +212,9 @@ export default function StorefrontPage() {
             {products.map((product) => {
               const outOfStock = Number(product.stock ?? 0) <= 0;
               const size = (selectedSizeFor as any)[product.id] || '';
+              const images = product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls : (product.imageUrl ? [product.imageUrl] : []);
+              const idx = imgIndexFor[product.id] ?? 0;
+
               return (
                 <motion.div
                   key={product.id}
@@ -168,16 +222,19 @@ export default function StorefrontPage() {
                   className="bg-white/90 backdrop-blur border border-white/70 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
                 >
                   <div className="relative">
-                    {product.imageUrl ? (
+                    {images.length > 0 ? (
                       <img
-                        src={product.imageUrl}
+                        src={currentImg(product)}
                         alt={product.name}
-                        className="w-full h-64 object-contain bg-white p-4"
+                        className="w-full h-64 object-contain bg-white p-4 cursor-pointer"
+                        onClick={() => cycleImage(product)}
+                        title={images.length > 1 ? 'Click to view next image' : undefined}
                       />
                     ) : (
                       <div className="w-full h-64 bg-gray-100" />
                     )}
 
+                    {/* badges */}
                     {outOfStock ? (
                       <div className="absolute top-2 right-2 text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">
                         Out of stock
@@ -185,6 +242,27 @@ export default function StorefrontPage() {
                     ) : (
                       <div className="absolute top-2 right-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                         🛒 Tap to add
+                      </div>
+                    )}
+
+                    {/* thumbnails */}
+                    {images.length > 1 && (
+                      <div className="absolute bottom-2 right-2 flex gap-2">
+                        {images.slice(0, 2).map((url, i) => (
+                          <button
+                            key={i}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setImageAt(product, i);
+                            }}
+                            className={`h-12 w-12 rounded border ${
+                              i === idx ? 'border-blue-500' : 'border-gray-200'
+                            } overflow-hidden bg-white`}
+                            title={`View image ${i + 1}`}
+                          >
+                            <img src={url} alt="" className="h-full w-full object-cover" />
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -232,3 +310,4 @@ export default function StorefrontPage() {
     </div>
   );
 }
+
