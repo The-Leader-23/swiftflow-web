@@ -36,4 +36,6 @@ export const db = initializeFirestore(app, {
 export const auth = getAuth(app);
 
 // Storage — DO NOT prepend "gs://"
-export const storage = getStorage(app, firebaseConfig.storageBucket);
+// Let Firebase use the config automatically
+export const storage = getStorage(app);
+
