@@ -22,6 +22,12 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 type TabKey = 'products' | 'orders';
 
+type MediaItem = {
+  type: 'image' | 'video';
+  url: string;
+  posterUrl?: string; // for videos
+};
+
 type Product = {
   id: string;
   productId: string;
@@ -29,8 +35,9 @@ type Product = {
   price: number;
   stock: number;
   category?: string;
-  // ⬇️ changed: support multiple images (fallback handled on read)
-  imageUrls?: string[];
+  // NEW: canonical media; we still keep imageUrls for backward-compat in UI
+  media?: MediaItem[];
+  imageUrls?: string[]; // derived from media images or legacy
   isVisible?: boolean;
   createdAt?: any;
 };
@@ -65,8 +72,9 @@ export default function ProductsManagerPage() {
     stock: '',
     category: '',
   });
-  // ⬇️ changed: allow up to 2 images
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
+
+  // Allow up to 3 media items total (images and/or video)
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
   // ORDERS
@@ -95,6 +103,18 @@ export default function ProductsManagerPage() {
       const list: Product[] = [];
       snap.forEach((d) => {
         const data = d.data() as any;
+        const media: MediaItem[] = Array.isArray(data.media) ? data.media : [];
+
+        // Back-compat normalize: compute imageUrls from media (images only) or legacy fields
+        const legacyImageUrls = Array.isArray(data.imageUrls)
+          ? data.imageUrls
+          : (data.imageUrl ? [data.imageUrl] : []);
+
+        const derivedImageUrls =
+          media.length > 0
+            ? media.filter((m: MediaItem) => m.type === 'image').map((m) => m.url)
+            : legacyImageUrls;
+
         list.push({
           id: d.id,
           productId: data.productId ?? d.id,
@@ -102,10 +122,8 @@ export default function ProductsManagerPage() {
           price: Number(data.price) || 0,
           stock: Number(data.stock) || 0,
           category: data.category ?? '',
-          // ⬇️ changed: normalize to array, keep legacy fallback
-          imageUrls: Array.isArray(data.imageUrls)
-            ? data.imageUrls
-            : (data.imageUrl ? [data.imageUrl] : []),
+          media,
+          imageUrls: derivedImageUrls,
           isVisible: data.isVisible ?? true,
           createdAt: data.createdAt,
         });
@@ -141,6 +159,56 @@ export default function ProductsManagerPage() {
     return () => unsub();
   }, [ordersCol]);
 
+  // Helpers for media
+  const isVideo = (file: File) => file.type.startsWith('video/');
+  const isImage = (file: File) => file.type.startsWith('image/');
+
+  const getVideoDuration = (file: File) =>
+    new Promise<number>((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => {
+        const d = v.duration || 0;
+        URL.revokeObjectURL(url);
+        resolve(d);
+      };
+      v.onerror = reject;
+      v.src = url;
+    });
+
+  // very small client-side poster capture for video
+  const makeVideoPoster = async (file: File): Promise<Blob | null> => {
+    try {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.src = url;
+      video.muted = true;
+      video.playsInline = true;
+      await new Promise<void>((res, rej) => {
+        video.onloadeddata = () => res();
+        video.onerror = () => rej(new Error('video load error'));
+      });
+      // grab a frame near the start
+      video.currentTime = Math.min(0.15, (video.duration || 0) / 2);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob((b) => res(b), 'image/jpeg', 0.82)
+      );
+      URL.revokeObjectURL(url);
+      return blob;
+    } catch {
+      return null;
+    }
+  };
+
   // Actions: PRODUCTS
   const handlePChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -154,25 +222,67 @@ export default function ProductsManagerPage() {
       return;
     }
 
-    setUploading(true);
-    // ⬇️ changed: upload up to 2 images and collect URLs
-    const imageUrls: string[] = [];
+    if (mediaFiles.length === 0) {
+      toast('Tip: add photos or a 5‑sec clip to boost sales 📈', { icon: '🎥' });
+    }
 
-    if (imageFiles.length > 0) {
+    // Cap to 3 items total
+    const chosen = mediaFiles.slice(0, 3);
+
+    // Validate: allow only images and at most ONE video (optional)
+    const videos = chosen.filter(isVideo);
+    if (videos.length > 1) {
+      toast.error('Only 1 video allowed per product (max 5 seconds).');
+      return;
+    }
+
+    // Check duration if there is a video
+    if (videos.length === 1) {
       try {
-        const limited = imageFiles.slice(0, 2);
-        for (const f of limited) {
-          const storageRef = ref(storage, `products/${uid}/${Date.now()}_${f.name}`);
-          await uploadBytes(storageRef, f);
-          const url = await getDownloadURL(storageRef);
-          imageUrls.push(url);
+        const dur = await getVideoDuration(videos[0]);
+        if (dur > 5.1) {
+          toast.error('Video must be 5 seconds or less.');
+          return;
         }
-      } catch (err) {
-        console.error(err);
-        toast.error('Image upload failed. Try a smaller JPG/PNG.');
-        setUploading(false);
+      } catch {
+        toast.error('Could not read the video file.');
         return;
       }
+    }
+
+    setUploading(true);
+
+    // Upload all media, build `media[]` and `imageUrls[]` (images only)
+    const media: MediaItem[] = [];
+    const imageUrls: string[] = [];
+
+    try {
+      for (const f of chosen) {
+        const path = `products/${uid}/${Date.now()}_${f.name}`;
+        const storageRef = ref(storage, path);
+        await uploadBytes(storageRef, f);
+        const url = await getDownloadURL(storageRef);
+
+        if (isImage(f)) {
+          media.push({ type: 'image', url });
+          imageUrls.push(url);
+        } else if (isVideo(f)) {
+          // optional poster
+          let posterUrl: string | undefined = undefined;
+          const posterBlob = await makeVideoPoster(f);
+          if (posterBlob) {
+            const posterRef = ref(storage, `products/${uid}/posters/${Date.now()}_${f.name}.jpg`);
+            await uploadBytes(posterRef, posterBlob, { contentType: 'image/jpeg' });
+            posterUrl = await getDownloadURL(posterRef);
+          }
+          media.push({ type: 'video', url, ...(posterUrl ? { posterUrl } : {}) });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Media upload failed. Try smaller files.');
+      setUploading(false);
+      return;
     }
 
     try {
@@ -182,8 +292,8 @@ export default function ProductsManagerPage() {
         price: Number(newProduct.price),
         stock: Number(newProduct.stock),
         category: newProduct.category.trim(),
-        // ⬇️ changed
-        imageUrls,
+        media,                 // ✅ canonical
+        imageUrls,             // ✅ back-compat (images only)
         isVisible: true,
         ownerId: uid,
         createdAt: serverTimestamp(),
@@ -199,15 +309,15 @@ export default function ProductsManagerPage() {
         price: Number(newProduct.price),
         stock: Number(newProduct.stock),
         category: newProduct.category.trim(),
-        // ⬇️ changed
-        imageUrls,
+        media,                 // ✅ public mirror
+        imageUrls,             // ✅ still mirroring (images only) for legacy
         isVisible: true,
         createdAt: serverTimestamp(),
       });
 
       setNewProduct({ name: '', price: '', stock: '', category: '' });
-      setImageFiles([]);
-      toast.success('Product added');
+      setMediaFiles([]);
+      toast.success('Product added with media 🎉');
     } catch (e) {
       console.error(e);
       toast.error('Failed to add product');
@@ -277,6 +387,17 @@ export default function ProductsManagerPage() {
       ? 'bg-emerald-500/90 text-white'
       : 'bg-yellow-400/90 text-black';
 
+  // Primary thumbnail chooser: image first, else video poster, else nothing
+  const primaryThumb = (p: Product): string => {
+    const m = p.media || [];
+    const img = m.find((x) => x.type === 'image')?.url;
+    if (img) return img;
+    const vidPoster = m.find((x) => x.type === 'video')?.posterUrl;
+    if (vidPoster) return vidPoster;
+    // fallback to legacy
+    return p.imageUrls?.[0] || '';
+  };
+
   return (
     <div className="min-h-screen w-full px-4 md:px-8 py-8 bg-gradient-to-br from-pink-200 via-blue-200 to-pink-200">
       <Toaster />
@@ -333,25 +454,34 @@ export default function ProductsManagerPage() {
                   <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Stock" name="stock" type="number" min="0" value={newProduct.stock} onChange={handlePChange} />
                   <input className="rounded-md px-3 py-2 bg-white/90 text-black outline-none" placeholder="Category (optional)" name="category" value={newProduct.category} onChange={handlePChange} />
 
-                  {/* ⬇️ changed: allow selecting up to 2 images + small previews */}
+                  {/* NEW: up to 3 files (images and/or ONE short video) */}
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     multiple
-                    onChange={(e) => setImageFiles(Array.from(e.target.files || []).slice(0, 2))}
+                    onChange={(e) => setMediaFiles(Array.from(e.target.files || []).slice(0, 3))}
                     className="rounded-md px-3 py-2 bg-white/90 text-black outline-none"
                   />
-                  {imageFiles.length > 0 && (
-                    <div className="flex gap-2">
-                      {imageFiles.map((f, i) => (
-                        <img key={i} src={URL.createObjectURL(f)} className="h-12 w-12 object-cover rounded border border-white/30" />
-                      ))}
+
+                  {/* Small previews (static) */}
+                  {mediaFiles.length > 0 && (
+                    <div className="flex gap-2 flex-wrap">
+                      {mediaFiles.map((f, i) =>
+                        f.type.startsWith('image/') ? (
+                          <img key={i} src={URL.createObjectURL(f)} className="h-12 w-12 object-cover rounded border border-white/30" />
+                        ) : (
+                          <video key={i} src={URL.createObjectURL(f)} className="h-12 w-12 rounded border border-white/30" muted playsInline />
+                        )
+                      )}
                     </div>
                   )}
 
                   <button onClick={addProduct} disabled={uploading} className="mt-2 rounded-lg bg-white text-[#2d2d2d] font-semibold py-2 disabled:opacity-70">
                     {uploading ? 'Uploading…' : 'Add'}
                   </button>
+                  <p className="text-xs text-white/80">
+                    Tip: Add up to 3 items (images and/or one 5‑sec video). We’ll auto‑generate a thumbnail for videos.
+                  </p>
                 </div>
               </div>
 
@@ -366,20 +496,22 @@ export default function ProductsManagerPage() {
                 ) : (
                   <div className="space-y-3">
                     {products.map((p) => {
-                      const primaryImg = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls[0] : '';
+                      const primaryImg = primaryThumb(p);
+                      const hasVideo = (p.media || []).some((m) => m.type === 'video');
                       return (
                         <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 border border-white/10 p-4">
                           <div className="flex items-center gap-3 min-w-0">
                             {primaryImg ? (
                               <img src={primaryImg} alt={p.name} className="h-12 w-12 rounded-md object-cover border border-white/20" />
                             ) : (
-                              <div className="h-12 w-12 rounded-md bg-white/10 border border-white/20 grid place-items-center text-xs text-white/70">No img</div>
+                              <div className="h-12 w-12 rounded-md bg-white/10 border border-white/20 grid place-items-center text-xs text-white/70">No media</div>
                             )}
                             <div className="min-w-0">
                               <div className="font-semibold truncate">{p.name}</div>
                               <div className="text-sm text-white/80">
                                 R{p.price.toFixed(2)} • Stock: {p.stock}
                                 {p.category ? ` • ${p.category}` : ''}
+                                {hasVideo && <span className="ml-2 px-2 py-0.5 text-xs rounded bg-white/20 border border-white/30">🎥</span>}
                               </div>
                               <div className="text-xs text-white/60 truncate">ID: {p.productId || p.id}</div>
                             </div>

@@ -1,23 +1,31 @@
+// app/swiftflow/store/[id]/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase.client';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import toast, { Toaster } from 'react-hot-toast';
 
+type MediaItem = {
+  type: 'image' | 'video';
+  url: string;
+  posterUrl?: string;
+};
+
 type PublicProduct = {
   id: string;
   name: string;
   price: number | string;
   stock?: number;
-  // ✅ New multi-image support
-  imageUrls?: string[];
-  // legacy fallback if old docs still have this
-  imageUrl?: string;
   ownerId: string;
   isVisible?: boolean;
+  // NEW
+  media?: MediaItem[];
+  // legacy
+  imageUrls?: string[];
+  imageUrl?: string;
 };
 
 export default function StorefrontPage() {
@@ -31,8 +39,8 @@ export default function StorefrontPage() {
   const [selectedSizeFor, setSelectedSizeFor] = useState<Record<string, string>>({});
   const [cartCount, setCartCount] = useState<number>(0);
 
-  // track current image index per product
-  const [imgIndexFor, setImgIndexFor] = useState<Record<string, number>>({});
+  // track current media index per product
+  const [idxFor, setIdxFor] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!id) return;
@@ -48,21 +56,26 @@ export default function StorefrontPage() {
         const productSnap = await getDocs(productQuery);
         const items = productSnap.docs.map((d) => {
           const data = d.data() as any;
-          // ✅ Normalize images: prefer imageUrls, else wrap legacy imageUrl
-          const imageUrls: string[] =
+          const media: MediaItem[] = Array.isArray(data.media) ? data.media.slice(0, 3) : [];
+
+          // Back-compat image list if media missing
+          const legacyImages: string[] =
             Array.isArray(data.imageUrls) && data.imageUrls.length > 0
-              ? data.imageUrls.slice(0, 2) // we only ever show up to 2
+              ? data.imageUrls
               : (data.imageUrl ? [data.imageUrl] : []);
+
           return {
             id: d.id,
             name: data.name,
             price: data.price,
             stock: data.stock,
-            imageUrls,
             ownerId: data.ownerId,
             isVisible: data.isVisible,
+            media,
+            imageUrls: legacyImages,
+            imageUrl: data.imageUrl,
           } as PublicProduct;
-        }) as any[];
+        });
 
         setProducts(items.filter((p) => p.isVisible !== false));
       } catch (e) {
@@ -89,25 +102,40 @@ export default function StorefrontPage() {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const currentImg = (p: PublicProduct) => {
-    const idx = imgIndexFor[p.id] ?? 0;
-    const arr = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
-    return arr[Math.min(idx, Math.max(0, arr.length - 1))] || '';
+  // Determine current displayable media URL or fallback image
+  const getCurrentMedia = (p: PublicProduct): { kind: 'image' | 'video' | 'none'; url?: string; poster?: string } => {
+    const m = (p.media && p.media.length > 0) ? p.media : [];
+    if (m.length > 0) {
+      const i = Math.min(idxFor[p.id] ?? 0, m.length - 1);
+      const item = m[i];
+      if (item?.type === 'image') return { kind: 'image', url: item.url };
+      if (item?.type === 'video') return { kind: 'video', url: item.url, poster: item.posterUrl };
+    }
+    // legacy fallback
+    const imgs = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
+    if (imgs.length > 0) return { kind: 'image', url: imgs[0] };
+    return { kind: 'none' };
   };
 
-  const cycleImage = (p: PublicProduct) => {
-    const arr = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
-    if (arr.length <= 1) return;
-    setImgIndexFor((m) => {
-      const next = ((m[p.id] ?? 0) + 1) % arr.length;
+  const totalMediaCount = (p: PublicProduct) => {
+    const mCount = (p.media && p.media.length) || 0;
+    const legacyCount = (p.imageUrls && p.imageUrls.length) || (p.imageUrl ? 1 : 0);
+    return mCount > 0 ? mCount : legacyCount;
+  };
+
+  const cycle = (p: PublicProduct) => {
+    const count = totalMediaCount(p);
+    if (count <= 1) return;
+    setIdxFor((m) => {
+      const next = ((m[p.id] ?? 0) + 1) % count;
       return { ...m, [p.id]: next };
     });
   };
 
-  const setImageAt = (p: PublicProduct, index: number) => {
-    const arr = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
-    if (index < 0 || index >= arr.length) return;
-    setImgIndexFor((m) => ({ ...m, [p.id]: index }));
+  const setAt = (p: PublicProduct, at: number) => {
+    const count = totalMediaCount(p);
+    if (at < 0 || at >= count) return;
+    setIdxFor((m) => ({ ...m, [p.id]: at }));
   };
 
   const addToCart = (product: PublicProduct) => {
@@ -115,10 +143,13 @@ export default function StorefrontPage() {
     if (!size) return toast.error('Please select a size first.');
     if ((Number(product.stock ?? 0)) <= 0) return toast.error('⛔ Out of stock.');
 
-    const imageForCart =
-      (product.imageUrls && product.imageUrls[0]) ||
-      product.imageUrl ||
-      '';
+    // For cart thumbnail, prefer an image (from media or legacy), fallback to video poster, then nothing
+    const media = product.media || [];
+    const imgFromMedia = media.find((x) => x.type === 'image')?.url;
+    const posterFromVideo = media.find((x) => x.type === 'video')?.posterUrl;
+    const legacyImg = (product.imageUrls && product.imageUrls[0]) || product.imageUrl || '';
+
+    const imageForCart = imgFromMedia || legacyImg || posterFromVideo || '';
 
     const existing: any[] = JSON.parse(localStorage.getItem('swiftflow_cart') || '[]');
     const item = {
@@ -155,7 +186,6 @@ export default function StorefrontPage() {
   };
 
   return (
-    // ✅ Same soft gradient background, applied to root
     <div className="min-h-screen relative overflow-hidden text-gray-900 bg-gradient-to-br from-[#fbc2eb] via-[#a6c1ee] to-[#fbc2eb]">
       <Toaster />
 
@@ -212,8 +242,9 @@ export default function StorefrontPage() {
             {products.map((product) => {
               const outOfStock = Number(product.stock ?? 0) <= 0;
               const size = (selectedSizeFor as any)[product.id] || '';
-              const images = product.imageUrls && product.imageUrls.length > 0 ? product.imageUrls : (product.imageUrl ? [product.imageUrl] : []);
-              const idx = imgIndexFor[product.id] ?? 0;
+              const current = getCurrentMedia(product);
+              const count = totalMediaCount(product);
+              const currentIndex = idxFor[product.id] ?? 0;
 
               return (
                 <motion.div
@@ -222,13 +253,27 @@ export default function StorefrontPage() {
                   className="bg-white/90 backdrop-blur border border-white/70 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300"
                 >
                   <div className="relative">
-                    {images.length > 0 ? (
+                    {/* Media area */}
+                    {current.kind === 'image' && current.url ? (
                       <img
-                        src={currentImg(product)}
+                        src={current.url}
                         alt={product.name}
                         className="w-full h-64 object-contain bg-white p-4 cursor-pointer"
-                        onClick={() => cycleImage(product)}
-                        title={images.length > 1 ? 'Click to view next image' : undefined}
+                        onClick={() => cycle(product)}
+                        title={count > 1 ? 'Click to view next media' : undefined}
+                      />
+                    ) : current.kind === 'video' && current.url ? (
+                      <video
+                        src={current.url}
+                        poster={current.poster}
+                        className="w-full h-64 object-contain bg-white p-4 cursor-pointer"
+                        onClick={() => cycle(product)}
+                        muted
+                        playsInline
+                        loop
+                        autoPlay
+                        controls
+                        title={count > 1 ? 'Click to view next media' : undefined}
                       />
                     ) : (
                       <div className="w-full h-64 bg-gray-100" />
@@ -245,23 +290,19 @@ export default function StorefrontPage() {
                       </div>
                     )}
 
-                    {/* thumbnails */}
-                    {images.length > 1 && (
+                    {/* mini dots/thumbnails */}
+                    {count > 1 && (
                       <div className="absolute bottom-2 right-2 flex gap-2">
-                        {images.slice(0, 2).map((url, i) => (
+                        {Array.from({ length: count }).map((_, i) => (
                           <button
                             key={i}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setImageAt(product, i);
+                              setAt(product, i);
                             }}
-                            className={`h-12 w-12 rounded border ${
-                              i === idx ? 'border-blue-500' : 'border-gray-200'
-                            } overflow-hidden bg-white`}
-                            title={`View image ${i + 1}`}
-                          >
-                            <img src={url} alt="" className="h-full w-full object-cover" />
-                          </button>
+                            className={`h-3 w-3 rounded-full ${i === currentIndex ? 'bg-blue-600' : 'bg-gray-300'}`}
+                            title={`View media ${i + 1}`}
+                          />
                         ))}
                       </div>
                     )}
