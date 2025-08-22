@@ -2,7 +2,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { storage } from './firebase.client';
 
 /**
- * Uploads a brand logo to Firebase Storage at logos/{userId}
+ * Uploads a brand logo to Firebase Storage at logos/{userId}/{filename}
  * @param file - The logo file to upload
  * @param userId - The UID of the user
  * @returns The public download URL of the uploaded logo
@@ -12,7 +12,10 @@ export const uploadLogo = async (file: File, userId: string): Promise<string> =>
     throw new Error('Missing file or userId');
   }
 
-  const logoRef = ref(storage, `logos/${userId}`);
+  // Ensure there's a filename so path matches rules (foldered path)
+  const filename = file.name && file.name.trim().length > 0 ? file.name : 'logo.jpg';
+  const logoRef = ref(storage, `logos/${userId}/${filename}`);
+
   const metadata = {
     contentType: file.type || 'image/jpeg',
   };
@@ -32,7 +35,7 @@ export const uploadLogo = async (file: File, userId: string): Promise<string> =>
       },
       async () => {
         try {
-          const downloadURL = await getDownloadURL(logoRef);
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
           console.log('✅ Logo uploaded. URL:', downloadURL);
           resolve(downloadURL);
         } catch (err) {
@@ -43,3 +46,4 @@ export const uploadLogo = async (file: File, userId: string): Promise<string> =>
     );
   });
 };
+

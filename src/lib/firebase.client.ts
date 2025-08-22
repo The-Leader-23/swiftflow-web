@@ -1,4 +1,3 @@
-// src/lib/firebase.client.ts
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
@@ -35,7 +34,6 @@ export const db = initializeFirestore(app, {
 // Auth
 export const auth = getAuth(app);
 
-// Storage — DO NOT prepend "gs://"
-// Let Firebase use the config automatically
-export const storage = getStorage(app);
+// Storage — explicitly bind to your actual bucket to avoid ambiguity
+export const storage = getStorage(app, 'gs://swift-c3347.firebasestorage.app');
 

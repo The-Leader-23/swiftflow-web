@@ -122,7 +122,7 @@ export default function DashboardWizard() {
       setLoading(false);
     };
     if (user) run();
-  }, [user]);
+  }, [user, db]);
 
   // Live stats for Step 3
   useEffect(() => {
@@ -171,7 +171,7 @@ export default function DashboardWizard() {
       unsubOrders();
       unsubProducts();
     };
-  }, [user, step]);
+  }, [user, step, db]);
 
   // Save business
   const saveBusiness = async () => {
@@ -185,7 +185,10 @@ export default function DashboardWizard() {
       let logoUrl = biz.logoUrl;
 
       if (logoFile) {
-        const storageRef = ref(storage, `logos/${user.uid}`);
+        // ✅ foldered path to satisfy: match /logos/{userId}/{filePath=**}
+        const filename =
+          logoFile.name && logoFile.name.trim().length > 0 ? logoFile.name : 'logo.jpg';
+        const storageRef = ref(storage, `logos/${user.uid}/${filename}`);
         await uploadBytes(storageRef, logoFile);
         logoUrl = await getDownloadURL(storageRef);
       }
@@ -462,6 +465,7 @@ export default function DashboardWizard() {
     </div>
   );
 }
+
 
 
 
